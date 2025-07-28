@@ -156,11 +156,11 @@ TEST_F(JsonValueTest, UnicodeEscapeHandling) {
 }
 
 TEST_F(JsonValueTest, InvalidUnicodeEscapeHandling) {
-    // Test malformed unicode escape sequences
-    JsonValue incomplete_unicode("\"\\u004\"");      // Too short
-    JsonValue incomplete_end("\"\\u\"");            // Just \u
-    JsonValue invalid_hex("\"\\u00GH\"");           // Invalid hex chars
-    JsonValue mixed_case("\"\\u00Aa\"");            // Mixed case (valid)
+    // Test both valid and invalid unicode escape sequences
+    JsonValue incomplete_unicode("\"\\u004\"");      // Too short (invalid)
+    JsonValue incomplete_end("\"\\u\"");            // Just \u (invalid)
+    JsonValue invalid_hex("\"\\u00GH\"");           // Invalid hex chars (invalid)
+    JsonValue mixed_case("\"\\u00Aa\"");            // Mixed case hex (valid)
     
     EXPECT_EQ(incomplete_unicode.type(), JsonValue::String);
     EXPECT_EQ(incomplete_unicode.get_string(), "\\u004");  // Preserved with trailing chars

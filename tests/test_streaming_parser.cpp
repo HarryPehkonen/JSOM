@@ -253,5 +253,170 @@ TEST_F(StreamingParserTest, StreamingAPIWithEndInput) {
     EXPECT_EQ(value.raw(), "42");
 }
 
+TEST_F(StreamingParserTest, RoundTripEmptyObjectParsing) {
+    StreamingParser parser;
+    
+    std::vector<JsonValue> captured_values;
+    std::vector<std::string> captured_pointers;
+    
+    ParseEvents events;
+    events.on_value = [&](const std::string& pointer, const JsonValue& value) {
+        captured_pointers.push_back(pointer);
+        captured_values.push_back(value);
+    };
+    
+    parser.set_events(events);
+    
+    // Test empty object
+    parser.parse_string("{}");
+    
+    ASSERT_EQ(captured_values.size(), 1);
+    EXPECT_EQ(captured_pointers[0], ""); // Root pointer
+    
+    const JsonValue& value = captured_values[0];
+    EXPECT_EQ(value.type(), JsonValue::Object);
+    EXPECT_TRUE(value.is_object());
+    EXPECT_EQ(value.raw(), "{}");
+    EXPECT_EQ(value.to_json(), "{}"); // Objects return their raw representation
+}
+
+TEST_F(StreamingParserTest, RoundTripEmptyArrayParsing) {
+    StreamingParser parser;
+    
+    std::vector<JsonValue> captured_values;
+    std::vector<std::string> captured_pointers;
+    
+    ParseEvents events;
+    events.on_value = [&](const std::string& pointer, const JsonValue& value) {
+        captured_pointers.push_back(pointer);
+        captured_values.push_back(value);
+    };
+    
+    parser.set_events(events);
+    
+    // Test empty array
+    parser.parse_string("[]");
+    
+    ASSERT_EQ(captured_values.size(), 1);
+    EXPECT_EQ(captured_pointers[0], ""); // Root pointer
+    
+    const JsonValue& value = captured_values[0];
+    EXPECT_EQ(value.type(), JsonValue::Array);
+    EXPECT_TRUE(value.is_array());
+    EXPECT_EQ(value.raw(), "[]");
+    EXPECT_EQ(value.to_json(), "[]"); // Arrays return their raw representation
+}
+
+TEST_F(StreamingParserTest, EmptyContainersWithWhitespace) {
+    StreamingParser parser;
+    
+    std::vector<JsonValue> captured_values;
+    
+    ParseEvents events;
+    events.on_value = [&](const std::string& /*pointer*/, const JsonValue& value) {
+        captured_values.push_back(value);
+    };
+    
+    parser.set_events(events);
+    
+    // Test empty object with whitespace
+    parser.parse_string("{ }");
+    ASSERT_EQ(captured_values.size(), 1);
+    EXPECT_EQ(captured_values[0].type(), JsonValue::Object);
+    EXPECT_EQ(captured_values[0].raw(), "{ }"); // Preserves original whitespace
+    
+    // Reset and test empty array with whitespace
+    captured_values.clear();
+    parser.reset();
+    parser.set_events(events);
+    parser.parse_string("[ ]");
+    
+    ASSERT_EQ(captured_values.size(), 1);
+    EXPECT_EQ(captured_values[0].type(), JsonValue::Array);
+    EXPECT_EQ(captured_values[0].raw(), "[ ]"); // Preserves original whitespace
+}
+
+TEST_F(StreamingParserTest, EmptyContainersStreamingAPI) {
+    StreamingParser parser;
+    
+    std::vector<JsonValue> captured_values;
+    
+    ParseEvents events;
+    events.on_value = [&](const std::string& /*pointer*/, const JsonValue& value) {
+        captured_values.push_back(value);
+    };
+    
+    parser.set_events(events);
+    
+    // Test empty object character by character
+    std::string json_input = "{}";
+    for (char c : json_input) {
+        parser.feed_character(c);
+    }
+    
+    ASSERT_EQ(captured_values.size(), 1);
+    const JsonValue& obj_value = captured_values[0];
+    EXPECT_EQ(obj_value.type(), JsonValue::Object);
+    EXPECT_EQ(obj_value.raw(), "{}");
+    
+    // Reset and test empty array character by character
+    captured_values.clear();
+    parser.reset();
+    parser.set_events(events);
+    
+    json_input = "[]";
+    for (char c : json_input) {
+        parser.feed_character(c);
+    }
+    
+    ASSERT_EQ(captured_values.size(), 1);
+    const JsonValue& arr_value = captured_values[0];
+    EXPECT_EQ(arr_value.type(), JsonValue::Array);
+    EXPECT_EQ(arr_value.raw(), "[]");
+}
+
+TEST_F(StreamingParserTest, SingleKeyValueObjectParsing) {
+    StreamingParser parser;
+    
+    std::vector<JsonValue> captured_values;
+    std::vector<std::string> captured_pointers;
+    
+    ParseEvents events;
+    events.on_value = [&](const std::string& pointer, const JsonValue& value) {
+        captured_pointers.push_back(pointer);
+        captured_values.push_back(value);
+    };
+    
+    parser.set_events(events);
+    
+    // Test simple key-value object
+    try {
+        parser.parse_string("{\"name\": \"John\"}");
+        
+        // Should capture at least the key-value pair
+        EXPECT_GE(captured_values.size(), 1) << "Should capture at least one value";
+        
+        // Find the /name value
+        bool found_name_value = false;
+        for (size_t i = 0; i < captured_values.size(); ++i) {
+            if (captured_pointers[i] == "/name") {
+                // The raw value should be a valid JSON string
+                EXPECT_EQ(captured_values[i].raw(), "\"John\"") 
+                    << "Expected clean string value, got: " << captured_values[i].raw();
+                
+                // And it should parse correctly as a string
+                EXPECT_EQ(captured_values[i].type(), JsonValue::String);
+                EXPECT_EQ(captured_values[i].get_string(), "John");
+                found_name_value = true;
+            }
+        }
+        
+        EXPECT_TRUE(found_name_value) << "Expected to find value at /name pointer";
+        
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
+}
+
 
 } // namespace jsom

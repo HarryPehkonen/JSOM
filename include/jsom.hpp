@@ -781,7 +781,18 @@ private:
     PathNode* current_node_ = nullptr;
 
     // Parser state
-    enum State : std::uint8_t { Start, InObject, InArray, InString, InNumber, InLiteral };
+    enum State : std::uint8_t { 
+        Start, 
+        InObject, 
+        InObjectKey,     // Parsing object key string
+        InObjectColon,   // Expecting ':' after key
+        InObjectValue,   // Parsing object value
+        InArray, 
+        InArrayValue,    // Parsing array element
+        InString, 
+        InNumber, 
+        InLiteral 
+    };
     State current_state_ = Start;
 
     // Event callbacks
@@ -794,6 +805,9 @@ private:
     // Value parsing state
     std::string current_value_buffer_;
     size_t value_start_position_ = 0;
+    
+    // Object parsing state
+    std::string current_object_key_;
 
 public:
     explicit StreamingParser(std::unique_ptr<IAllocator> allocator = nullptr)
@@ -941,8 +955,22 @@ private:
             handle_literal_state(character);
             break;
         case InObject:
+            handle_object_state(character);
+            break;
+        case InObjectKey:
+            handle_object_key_state(character); // Keys are strings with special completion
+            break;
+        case InObjectColon:
+            handle_object_colon_state(character);
+            break;
+        case InObjectValue:
+            handle_object_value_state(character);
+            break;
         case InArray:
-            // TODO: Implement object/array parsing
+            handle_array_state(character);
+            break;
+        case InArrayValue:
+            handle_array_value_state(character);
             break;
         }
     }
@@ -952,8 +980,9 @@ private:
             complete_value_parsing();
             current_state_ = Start;
         }
-        // Note: If we're in InString state at EOF, that's an error (unclosed string)
-        // For now, we'll just ignore it, but we could emit an error
+        // Note: If we're in InString, InObjectKey, or container states at EOF, 
+        // that's an error (unclosed structures). For now, we'll just ignore it,
+        // but we could emit an error
     }
 
     void handle_start_state(char character) {
@@ -1005,6 +1034,164 @@ private:
         }
     }
 
+    void handle_object_state(char character) {
+        if (std::isspace(character) != 0) {
+            return; // Skip whitespace in objects
+        }
+
+        if (character == '}') {
+            // Check if this is an empty object or closing after key-value pairs
+            if (current_node_ && current_node_->first_child != nullptr) {
+                // Object with content - emit object representation and return to parent
+                complete_populated_object();
+            } else {
+                // Empty object - emit the object value and return to Start state
+                complete_empty_container("{}");
+            }
+        } else if (character == '"') {
+            // Start parsing object key
+            start_value_with_state(character, InObjectKey);
+        } else if (character == ',') {
+            // Continue to next key-value pair (ignore for now)
+            // TODO: Handle multiple key-value pairs
+        } else {
+            // Invalid character in object context
+            // For now, ignore (could emit error)
+        }
+    }
+
+    void handle_array_state(char character) {
+        if (std::isspace(character) != 0) {
+            return; // Skip whitespace in arrays  
+        }
+
+        if (character == ']') {
+            // Empty array - emit the array value and return to Start state
+            complete_empty_container("[]");
+        } else {
+            // TODO: Handle array elements
+            // For now, just ignore non-closing characters
+        }
+    }
+
+    void handle_object_key_state(char character) {
+        current_value_buffer_ += character;
+        if (character == '"' && !is_escaped()) {
+            // Object key completed - store it and transition to colon state
+            complete_object_key();
+            current_state_ = InObjectColon;
+        }
+    }
+
+    void handle_object_colon_state(char character) {
+        if (std::isspace(character) != 0) {
+            return; // Skip whitespace before/after colon
+        }
+
+        if (character == ':') {
+            // Found colon, transition to object value parsing
+            current_state_ = InObjectValue;
+        } else {
+            // Invalid character - expected colon
+            // For now, ignore (could emit error)
+        }
+    }
+
+    void handle_object_value_state(char character) {
+        if (std::isspace(character) != 0) {
+            return; // Skip whitespace before value
+        }
+
+        // Delegate to start state logic for value parsing
+        if (character == '"') {
+            start_value_with_state(character, InString);
+        } else if (character == '-' || (std::isdigit(character) != 0)) {
+            start_value_with_state(character, InNumber);
+        } else if (std::isalpha(character) != 0) {
+            start_value_with_state(character, InLiteral);
+        } else if (character == '{') {
+            current_state_ = InObject;
+            if (events_.on_enter_object) {
+                std::string pointer = current_node_ ? current_node_->generate_json_pointer() : "";
+                events_.on_enter_object(pointer);
+            }
+        } else if (character == '[') {
+            current_state_ = InArray;
+            if (events_.on_enter_array) {
+                std::string pointer = current_node_ ? current_node_->generate_json_pointer() : "";
+                events_.on_enter_array(pointer);
+            }
+        }
+    }
+
+    void handle_array_value_state(char character) {
+        // Similar to handle_object_value_state but for array elements
+        if (std::isspace(character) != 0) {
+            return; // Skip whitespace before value
+        }
+
+        // Delegate to start state logic for value parsing
+        if (character == '"') {
+            start_value_with_state(character, InString);
+        } else if (character == '-' || (std::isdigit(character) != 0)) {
+            start_value_with_state(character, InNumber);
+        } else if (std::isalpha(character) != 0) {
+            start_value_with_state(character, InLiteral);
+        } else if (character == '{') {
+            current_state_ = InObject;
+            if (events_.on_enter_object) {
+                std::string pointer = current_node_ ? current_node_->generate_json_pointer() : "";
+                events_.on_enter_object(pointer);
+            }
+        } else if (character == '[') {
+            current_state_ = InArray;
+            if (events_.on_enter_array) {
+                std::string pointer = current_node_ ? current_node_->generate_json_pointer() : "";
+                events_.on_enter_array(pointer);
+            }
+        }
+    }
+
+    void complete_object_key() {
+        // Extract the key string (remove surrounding quotes)
+        if (current_value_buffer_.size() >= 2 && 
+            current_value_buffer_.front() == '"' && 
+            current_value_buffer_.back() == '"') {
+            current_object_key_ = current_value_buffer_.substr(1, current_value_buffer_.size() - 2);
+            // Unescape the key if needed
+            current_object_key_ = JsonValue::unescape_string(current_object_key_);
+        } else {
+            current_object_key_ = current_value_buffer_; // Fallback
+        }
+        
+        // Clear the value buffer for the upcoming value
+        current_value_buffer_.clear();
+    }
+
+    void complete_populated_object() {
+        // For now, emit a simple object representation
+        // TODO: Generate proper JSON representation from PathNode children
+        std::string pointer = current_node_ ? current_node_->generate_json_pointer() : "";
+        JsonValue value("{...}", current_node_); // Placeholder representation
+        emit_value(pointer, value);
+        current_state_ = Start;
+        
+        // TODO: Handle proper parent context restoration for nested objects
+    }
+
+    void complete_empty_container(const std::string& container_json) {
+        // Set up the value buffer as if we parsed the container
+        current_value_buffer_ = container_json;
+        value_start_position_ = 0;
+        
+        // Use the standard value parsing completion
+        complete_value_parsing();
+        current_state_ = Start;
+        
+        // TODO: When we implement nested structures, we may need to exit object/array
+        // and restore parent state instead of going to Start
+    }
+
     void start_value_with_state(char character, State new_state) {
         start_value_parsing();
         current_value_buffer_ += character;
@@ -1013,7 +1200,15 @@ private:
 
     void complete_value_and_restart() {
         complete_value_parsing();
-        current_state_ = Start;
+        
+        // Determine next state based on context
+        if (!current_object_key_.empty()) {
+            // We just completed an object value - expect } or ,
+            current_state_ = InObject;
+            current_object_key_.clear(); // Clear for next key-value pair
+        } else {
+            current_state_ = Start;
+        }
     }
 
     [[nodiscard]] static auto is_number_character(char character) -> bool {
@@ -1027,8 +1222,15 @@ private:
     }
 
     void complete_value_parsing() {
+        // Handle object key context
+        PathNode* value_node = current_node_;
+        if (!current_object_key_.empty()) {
+            // Create a new PathNode for this object key
+            value_node = current_node_->add_child(PathNode::ObjectKey, current_object_key_);
+        }
+        
         // Generate JSON Pointer for current context
-        std::string pointer = (current_node_ != nullptr) ? current_node_->generate_json_pointer() : "";
+        std::string pointer = (value_node != nullptr) ? value_node->generate_json_pointer() : "";
 
         // For streaming, we need to store the value in input_buffer_ to keep it valid
         if (input_buffer_.empty()) {
@@ -1042,7 +1244,7 @@ private:
             = input_buffer_.empty() ? 0 : (input_buffer_.size() - value_start_position_);
         std::string_view value_data
             = std::string_view(input_buffer_).substr(value_start_position_, value_length);
-        JsonValue value(value_data, current_node_);
+        JsonValue value(value_data, value_node);
 
         // Emit the value
         emit_value(pointer, value);
