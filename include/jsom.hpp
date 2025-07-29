@@ -40,10 +40,10 @@ constexpr int HEX_LETTER_OFFSET = 10;
 
 // NOLINTNEXTLINE(readability-identifier-length)
 inline auto is_valid_utf8_start(unsigned char c) -> bool {
-    return (c & ASCII_MASK) == 0 ||                              // ASCII (0xxxxxxx)
-           (c & TWO_BYTE_MASK) == TWO_BYTE_MARKER ||             // 2-byte (110xxxxx)
-           (c & THREE_BYTE_MASK) == THREE_BYTE_MARKER ||         // 3-byte (1110xxxx)
-           (c & FOUR_BYTE_MASK) == FOUR_BYTE_MARKER;             // 4-byte (11110xxx)
+    return (c & ASCII_MASK) == 0 ||                      // ASCII (0xxxxxxx)
+           (c & TWO_BYTE_MASK) == TWO_BYTE_MARKER ||     // 2-byte (110xxxxx)
+           (c & THREE_BYTE_MASK) == THREE_BYTE_MARKER || // 3-byte (1110xxxx)
+           (c & FOUR_BYTE_MASK) == FOUR_BYTE_MARKER;     // 4-byte (11110xxx)
 }
 
 // NOLINTNEXTLINE(readability-identifier-length)
@@ -102,12 +102,15 @@ inline auto unicode_to_utf8(std::uint32_t codepoint) -> std::string {
         result += static_cast<char>(CONTINUATION_MARKER | (codepoint & DATA_BITS_MASK));
     } else if (codepoint <= THREE_BYTE_MAX) {
         result += static_cast<char>(THREE_BYTE_MARKER | (codepoint >> SHIFT_12_BITS));
-        result += static_cast<char>(CONTINUATION_MARKER | ((codepoint >> SHIFT_6_BITS) & DATA_BITS_MASK));
+        result += static_cast<char>(CONTINUATION_MARKER
+                                    | ((codepoint >> SHIFT_6_BITS) & DATA_BITS_MASK));
         result += static_cast<char>(CONTINUATION_MARKER | (codepoint & DATA_BITS_MASK));
     } else if (codepoint <= UNICODE_MAX) {
         result += static_cast<char>(FOUR_BYTE_MARKER | (codepoint >> SHIFT_18_BITS));
-        result += static_cast<char>(CONTINUATION_MARKER | ((codepoint >> SHIFT_12_BITS) & DATA_BITS_MASK));
-        result += static_cast<char>(CONTINUATION_MARKER | ((codepoint >> SHIFT_6_BITS) & DATA_BITS_MASK));
+        result += static_cast<char>(CONTINUATION_MARKER
+                                    | ((codepoint >> SHIFT_12_BITS) & DATA_BITS_MASK));
+        result += static_cast<char>(CONTINUATION_MARKER
+                                    | ((codepoint >> SHIFT_6_BITS) & DATA_BITS_MASK));
         result += static_cast<char>(CONTINUATION_MARKER | (codepoint & DATA_BITS_MASK));
     }
 
@@ -118,6 +121,12 @@ inline auto unicode_to_utf8(std::uint32_t codepoint) -> std::string {
 // Default allocator block size
 constexpr std::size_t DEFAULT_ARENA_BLOCK_SIZE = 4096;
 
+// Maximum literal length (for "false" which is 5 characters)
+constexpr std::size_t MAX_LITERAL_LENGTH = 5;
+
+// ASCII control character threshold (characters below 0x20 must be escaped)
+constexpr std::uint8_t ASCII_CONTROL_THRESHOLD = 0x20;
+
 class JsonValue;
 struct PathNode;
 struct ParseError;
@@ -126,7 +135,16 @@ enum class JsonType : std::uint8_t { Null, Boolean, Number, String, Object, Arra
 
 enum class ContainerType : std::uint8_t { Object, Array };
 
-enum class ParseState : std::uint8_t { Start, InString, InNumber, InLiteral, InObject, InArray };
+enum class ParseState : std::uint8_t {
+    Start,
+    InString,
+    InNumber,
+    InLiteral,
+    InObject,
+    InArray,
+    Error,
+    InUnicodeEscape
+};
 
 struct ParseEvents {
     std::function<void(const JsonValue&)> on_value;
@@ -175,7 +193,8 @@ private:
     std::size_t block_size_;
 
 public:
-    explicit ArenaAllocator(std::size_t block_size = DEFAULT_ARENA_BLOCK_SIZE) : block_size_(block_size) {}
+    explicit ArenaAllocator(std::size_t block_size = DEFAULT_ARENA_BLOCK_SIZE)
+        : block_size_(block_size) {}
 
     auto allocate(std::size_t size) -> void* override {
         if (blocks_.empty() || blocks_.back().used + size > blocks_.back().size) {
@@ -285,6 +304,8 @@ private:
     std::unique_ptr<IAllocator> allocator_;
     PathNode* root_node_;
     std::size_t position_{0};
+    bool in_escape_{false};
+    std::string unicode_buffer_;
 
 public:
     explicit StreamingParser(std::unique_ptr<IAllocator> alloc
@@ -309,14 +330,252 @@ public:
 
 private:
     // NOLINTNEXTLINE(readability-identifier-length)
-    static void process_character_in_state(char c) {
-        // Character processing logic will be implemented in Phase 2
-        // This method eliminates the switch with identical branches warning
-        (void)c; // Suppress unused parameter warning
+    void process_character_in_state(char c) {
+        switch (state_) {
+        case ParseState::Start:
+            handle_start_state(c);
+            break;
+        case ParseState::InLiteral:
+            handle_literal_state(c);
+            break;
+        case ParseState::InNumber:
+            handle_number_state(c);
+            break;
+        case ParseState::InString:
+            handle_string_state(c);
+            break;
+        case ParseState::InObject:
+        case ParseState::InArray:
+            // Will be implemented in Phase 4
+            break;
+        case ParseState::Error:
+            handle_error_state(c);
+            break;
+        case ParseState::InUnicodeEscape:
+            handle_unicode_escape_state(c);
+            break;
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_start_state(char c) {
+        // Skip whitespace
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            return;
+        }
+
+        if (c == '"') {
+            // Start of string
+            state_ = ParseState::InString;
+            value_buffer_.clear();
+        } else if (c == 't' || c == 'f' || c == 'n') {
+            // Start of literal (true, false, null)
+            state_ = ParseState::InLiteral;
+            value_buffer_.clear();
+            value_buffer_.push_back(c);
+        } else if (c == '-' || (c >= '0' && c <= '9')) {
+            // Start of number
+            state_ = ParseState::InNumber;
+            value_buffer_.clear();
+            value_buffer_.push_back(c);
+        } else {
+            emit_error("Unexpected character in start state");
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_literal_state(char c) {
+        value_buffer_.push_back(c);
+
+        // Check if we have a complete literal
+        if (value_buffer_ == "true" || value_buffer_ == "false" || value_buffer_ == "null") {
+            complete_literal_value();
+        } else if (value_buffer_.size() > MAX_LITERAL_LENGTH || !is_valid_literal_prefix()) {
+            // Invalid literal - too long or invalid prefix
+            emit_error("Invalid literal");
+            state_ = ParseState::Start;
+            value_buffer_.clear();
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_number_state(char c) {
+        if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
+            // Valid number characters (digits and scientific notation characters)
+            value_buffer_.push_back(c);
+        } else {
+            // End of number - emit value and handle the terminating character
+            complete_number_value();
+            // Process the terminating character in start state
+            handle_start_state(c);
+        }
+    }
+
+    [[nodiscard]] auto is_valid_literal_prefix() const -> bool {
+        return value_buffer_ == "t" || value_buffer_ == "tr" || value_buffer_ == "tru"
+               || value_buffer_ == "f" || value_buffer_ == "fa" || value_buffer_ == "fal"
+               || value_buffer_ == "fals" || value_buffer_ == "n" || value_buffer_ == "nu"
+               || value_buffer_ == "nul";
+    }
+
+    void complete_literal_value() {
+        JsonType type;
+        if (value_buffer_ == "true" || value_buffer_ == "false") {
+            type = JsonType::Boolean;
+        } else if (value_buffer_ == "null") {
+            type = JsonType::Null;
+        } else {
+            emit_error("Internal error: invalid literal completed");
+            return;
+        }
+
+        emit_value(type, value_buffer_);
+        state_ = ParseState::Start;
+        value_buffer_.clear();
+    }
+
+    void complete_number_value() {
+        emit_value(JsonType::Number, value_buffer_);
+        state_ = ParseState::Start;
+        value_buffer_.clear();
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_string_state(char c) {
+        if (in_escape_) {
+            handle_escape_sequence(c);
+        } else if (c == '\\') {
+            // Start escape sequence
+            in_escape_ = true;
+        } else if (c == '"') {
+            // End of string
+            complete_string_value();
+        } else if (static_cast<unsigned char>(c) < ASCII_CONTROL_THRESHOLD) {
+            // Control characters must be escaped in JSON strings
+            emit_error("Unescaped control character in string");
+            state_ = ParseState::Error;
+            value_buffer_.clear();
+            in_escape_ = false;
+        } else {
+            // Regular character
+            value_buffer_.push_back(c);
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_escape_sequence(char c) {
+        if (c == 'u') {
+            // Start Unicode escape sequence
+            handle_unicode_escape();
+            return;
+        }
+
+        char escaped_char = get_escaped_character(c);
+        if (escaped_char == '\0') {
+            // Invalid escape sequence
+            emit_error("Invalid escape sequence");
+            state_ = ParseState::Error;
+            value_buffer_.clear();
+            in_escape_ = false;
+            return;
+        }
+
+        value_buffer_.push_back(escaped_char);
+        in_escape_ = false;
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    [[nodiscard]] static auto get_escaped_character(char c) -> char {
+        switch (c) {
+        case '"':
+            return '"';
+        case '\\':
+            return '\\';
+        case '/':
+            return '/';
+        case 'b':
+            return '\b';
+        case 'f':
+            return '\f';
+        case 'n':
+            return '\n';
+        case 'r':
+            return '\r';
+        case 't':
+            return '\t';
+        default:
+            return '\0'; // Invalid escape
+        }
+    }
+
+    void handle_unicode_escape() {
+        // Start collecting 4 hex digits
+        state_ = ParseState::InUnicodeEscape;
+        unicode_buffer_.clear();
+        in_escape_ = false;
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_unicode_escape_state(char c) {
+        if (std::isxdigit(static_cast<unsigned char>(c)) != 0) {
+            unicode_buffer_.push_back(c);
+
+            if (unicode_buffer_.size() == 4) {
+                // We have 4 hex digits, convert to UTF-8
+                complete_unicode_escape();
+            }
+        } else {
+            emit_error("Invalid Unicode escape sequence: expected hex digit");
+            state_ = ParseState::Error;
+            unicode_buffer_.clear();
+        }
+    }
+
+    void complete_unicode_escape() {
+        // Convert 4 hex digits to Unicode codepoint
+        std::uint32_t codepoint = utf8::hex_to_uint32(unicode_buffer_);
+
+        // Convert codepoint to UTF-8 string and add to value buffer
+        std::string utf8_sequence = utf8::unicode_to_utf8(codepoint);
+        value_buffer_ += utf8_sequence;
+
+        // Return to string parsing state
+        state_ = ParseState::InString;
+        unicode_buffer_.clear();
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_error_state(char c) {
+        // In error state, consume characters until we find a recovery point
+        // For string errors, we skip until we find a quote or whitespace
+        if (c == '"' || c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            state_ = ParseState::Start;
+        }
+        // Otherwise, just consume and ignore the character
+    }
+
+    void complete_string_value() {
+        emit_value(JsonType::String, value_buffer_);
+        state_ = ParseState::Start;
+        value_buffer_.clear();
+        in_escape_ = false;
+    }
+
+    void emit_value(JsonType type, const std::string& value) {
+        if (events_.on_value) {
+            // For now, use root_node as path (Phase 6 will implement proper path tracking)
+            JsonValue json_value(type, value, root_node_);
+            events_.on_value(json_value);
+        }
+    }
+
+    void emit_error(const std::string& message) {
+        if (events_.on_error) {
+            events_.on_error({position_, message, ""});
+        }
     }
 
 public:
-
     void parse_string(const std::string& json) {
         // NOLINTNEXTLINE(readability-identifier-length)
         for (char c : json) {
@@ -325,6 +584,25 @@ public:
     }
 
     void end_input() {
+        // Complete any pending value
+        if (state_ == ParseState::InNumber) {
+            complete_number_value();
+        } else if (state_ == ParseState::InLiteral) {
+            // Check if we have a complete literal
+            if (value_buffer_ == "true" || value_buffer_ == "false" || value_buffer_ == "null") {
+                complete_literal_value();
+            } else if (!value_buffer_.empty()) {
+                // For incomplete literals at end of input, treat as invalid literal
+                emit_error("Invalid literal");
+            }
+        } else if (state_ == ParseState::InString) {
+            emit_error("Unterminated string at end of input");
+        } else if (state_ == ParseState::InUnicodeEscape) {
+            emit_error("Incomplete Unicode escape sequence at end of input");
+        } else if (state_ == ParseState::Error) {
+            // Already in error state, no additional error needed
+        }
+
         if (!context_stack_.empty()) {
             if (events_.on_error) {
                 events_.on_error({position_, "Unexpected end of input: unclosed containers", ""});
@@ -339,6 +617,8 @@ public:
         context_stack_.clear();
         value_buffer_.clear();
         position_ = 0;
+        in_escape_ = false;
+        unicode_buffer_.clear();
         allocator_->reset();
 
         root_node_ = static_cast<PathNode*>(allocator_->allocate(sizeof(PathNode)));

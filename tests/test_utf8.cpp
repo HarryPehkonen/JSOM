@@ -41,11 +41,11 @@ TEST_F(UTF8Test, IsValidHexString) {
     EXPECT_TRUE(jsom::utf8::is_valid_hex_string("abcdef"));
     EXPECT_TRUE(jsom::utf8::is_valid_hex_string("0041"));
     EXPECT_TRUE(jsom::utf8::is_valid_hex_string("FFFF"));
-    EXPECT_TRUE(jsom::utf8::is_valid_hex_string(""));     // Empty string is valid
-    
+    EXPECT_TRUE(jsom::utf8::is_valid_hex_string("")); // Empty string is valid
+
     EXPECT_FALSE(jsom::utf8::is_valid_hex_string("G"));    // Invalid hex char
-    EXPECT_FALSE(jsom::utf8::is_valid_hex_string("0x41"));  // Has 'x'
-    EXPECT_FALSE(jsom::utf8::is_valid_hex_string("123G"));  // Mixed valid/invalid
+    EXPECT_FALSE(jsom::utf8::is_valid_hex_string("0x41")); // Has 'x'
+    EXPECT_FALSE(jsom::utf8::is_valid_hex_string("123G")); // Mixed valid/invalid
 }
 
 TEST_F(UTF8Test, HexToUint32) {
