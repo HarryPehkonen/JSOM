@@ -31,6 +31,7 @@ add_executable(jsom_tests
     tests/test_utf8.cpp
     tests/test_parsing.cpp
     tests/test_strings.cpp
+    tests/test_containers.cpp
 )
 
 target_link_libraries(jsom_tests

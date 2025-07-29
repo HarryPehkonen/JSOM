@@ -345,8 +345,10 @@ private:
             handle_string_state(c);
             break;
         case ParseState::InObject:
+            handle_object_state(c);
+            break;
         case ParseState::InArray:
-            // Will be implemented in Phase 4
+            handle_array_state(c);
             break;
         case ParseState::Error:
             handle_error_state(c);
@@ -378,6 +380,18 @@ private:
             state_ = ParseState::InNumber;
             value_buffer_.clear();
             value_buffer_.push_back(c);
+        } else if (c == '{') {
+            // Start of object
+            handle_object_opening();
+        } else if (c == '[') {
+            // Start of array
+            handle_array_opening();
+        } else if (c == '}') {
+            // End of object
+            handle_object_closing();
+        } else if (c == ']') {
+            // End of array
+            handle_array_closing();
         } else {
             emit_error("Unexpected character in start state");
         }
@@ -406,8 +420,8 @@ private:
         } else {
             // End of number - emit value and handle the terminating character
             complete_number_value();
-            // Process the terminating character in start state
-            handle_start_state(c);
+            // Process the terminating character in the appropriate state
+            process_character_in_state(c);
         }
     }
 
@@ -430,13 +444,13 @@ private:
         }
 
         emit_value(type, value_buffer_);
-        state_ = ParseState::Start;
+        return_to_container_or_start();
         value_buffer_.clear();
     }
 
     void complete_number_value() {
         emit_value(JsonType::Number, value_buffer_);
-        state_ = ParseState::Start;
+        return_to_container_or_start();
         value_buffer_.clear();
     }
 
@@ -556,7 +570,7 @@ private:
 
     void complete_string_value() {
         emit_value(JsonType::String, value_buffer_);
-        state_ = ParseState::Start;
+        return_to_container_or_start();
         value_buffer_.clear();
         in_escape_ = false;
     }
@@ -572,6 +586,135 @@ private:
     void emit_error(const std::string& message) {
         if (events_.on_error) {
             events_.on_error({position_, message, ""});
+        }
+    }
+
+    void return_to_container_or_start() {
+        if (context_stack_.empty()) {
+            state_ = ParseState::Start;
+        } else {
+            ParseContext& current = context_stack_.back();
+            state_ = (current.type == ContainerType::Object) ? ParseState::InObject : ParseState::InArray;
+        }
+    }
+
+    void handle_object_opening() {
+        // Create new ParseContext for object
+        ParseContext context(root_node_, ContainerType::Object);
+        context_stack_.push_back(context);
+        
+        // Emit on_enter_object event
+        if (events_.on_enter_object) {
+            events_.on_enter_object("");  // No key for root object
+        }
+        
+        // Transition to InObject state
+        state_ = ParseState::InObject;
+    }
+
+    void handle_array_opening() {
+        // Create new ParseContext for array
+        ParseContext context(root_node_, ContainerType::Array);
+        context_stack_.push_back(context);
+        
+        // Emit on_enter_array event
+        if (events_.on_enter_array) {
+            events_.on_enter_array();
+        }
+        
+        // Transition to InArray state
+        state_ = ParseState::InArray;
+    }
+
+    void handle_object_closing() {
+        if (context_stack_.empty()) {
+            emit_error("Unexpected '}': no object to close");
+            return;
+        }
+
+        ParseContext& current = context_stack_.back();
+        if (current.type != ContainerType::Object) {
+            emit_error("Unexpected '}': expected ']' to close array");
+            context_stack_.clear(); // Clear to prevent end_input error
+            state_ = ParseState::Error;
+            return;
+        }
+
+        // Pop the object context
+        context_stack_.pop_back();
+        
+        // Emit on_exit_container event
+        if (events_.on_exit_container) {
+            events_.on_exit_container();
+        }
+        
+        // Return to appropriate state
+        return_to_container_or_start();
+    }
+
+    void handle_array_closing() {
+        if (context_stack_.empty()) {
+            emit_error("Unexpected ']': no array to close");
+            return;
+        }
+
+        ParseContext& current = context_stack_.back();
+        if (current.type != ContainerType::Array) {
+            emit_error("Unexpected ']': expected '}' to close object");
+            context_stack_.clear(); // Clear to prevent end_input error
+            state_ = ParseState::Error;
+            return;
+        }
+
+        // Pop the array context
+        context_stack_.pop_back();
+        
+        // Emit on_exit_container event
+        if (events_.on_exit_container) {
+            events_.on_exit_container();
+        }
+        
+        // Return to appropriate state
+        return_to_container_or_start();
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_object_state(char c) {
+        // Skip whitespace
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            return;
+        }
+
+        if (c == '}') {
+            // End of object
+            handle_object_closing();
+        } else if (c == ',') {
+            // Comma separator - just skip for now (Phase 5 will handle properly)
+            return;
+        } else {
+            // For now, treat any other character as start of value
+            // This will be expanded in Phase 5 for key-value parsing
+            handle_start_state(c);
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void handle_array_state(char c) {
+        // Skip whitespace
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            return;
+        }
+
+        if (c == ']') {
+            // End of array
+            handle_array_closing();
+        } else if (c == ',') {
+            // Comma separator - just skip for now (Phase 5 will handle properly)
+            return;
+        } else {
+            // For now, treat any other character as start of value
+            // This will be expanded in Phase 5 for element parsing
+            handle_start_state(c);
         }
     }
 
