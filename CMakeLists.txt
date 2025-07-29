@@ -33,6 +33,7 @@ add_executable(jsom_tests
     tests/test_strings.cpp
     tests/test_containers.cpp
     tests/test_phase5.cpp
+    tests/test_path_tracking.cpp
 )
 
 target_link_libraries(jsom_tests

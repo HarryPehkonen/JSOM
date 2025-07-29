@@ -265,6 +265,7 @@ struct ParseContext {
     bool expecting_key;
     bool expecting_colon{false};
     std::size_t array_index{0};
+    std::string key; // Object key for this context level
 
     ParseContext(PathNode* path_node, ContainerType container_type)
         : node(path_node), type(container_type),
@@ -276,14 +277,22 @@ private:
     JsonType type_;
     std::string raw_value_;
     PathNode* path_node_;
+    std::string path_override_;
 
 public:
     JsonValue(JsonType type, std::string value, PathNode* node)
         : type_(type), raw_value_(std::move(value)), path_node_(node) {}
 
+    JsonValue(JsonType type, std::string value, std::string path)
+        : type_(type), raw_value_(std::move(value)), path_node_(nullptr),
+          path_override_(std::move(path)) {}
+
     [[nodiscard]] auto type() const -> JsonType { return type_; }
     [[nodiscard]] auto raw_value() const -> const std::string& { return raw_value_; }
     [[nodiscard]] auto path() const -> std::string {
+        if (!path_override_.empty()) {
+            return path_override_;
+        }
         return path_node_ != nullptr ? path_node_->generate_json_pointer() : "";
     }
 
@@ -607,17 +616,72 @@ private:
 
     void emit_value(JsonType type, const std::string& value) {
         if (events_.on_value) {
-            // For now, use root_node as path (Phase 6 will implement proper path tracking)
-            JsonValue json_value(type, value, root_node_);
+            // Create JsonValue with current JSON Pointer path
+            std::string json_pointer = generate_current_json_pointer();
+            JsonValue json_value(type, value, json_pointer);
             events_.on_value(json_value);
         }
     }
 
     void emit_error(const std::string& message) {
         if (events_.on_error) {
-            events_.on_error({position_, message, ""});
+            std::string json_pointer = generate_current_json_pointer();
+            events_.on_error({position_, message, json_pointer});
         }
     }
+
+    [[nodiscard]] static auto escape_json_pointer_component(const std::string& component) -> std::string {
+        std::string escaped = component;
+        std::size_t pos = 0;
+        // Escape ~ first (~ -> ~0)
+        while ((pos = escaped.find('~', pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "~0");
+            pos += 2;
+        }
+        pos = 0;
+        // Then escape / (/ -> ~1)
+        while ((pos = escaped.find('/', pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "~1");
+            pos += 2;
+        }
+        return escaped;
+    }
+
+    // NOLINTBEGIN(readability-function-size)
+    [[nodiscard]] auto generate_current_json_pointer() const -> std::string {
+        std::string result;
+
+        // Build path from context stack
+        for (std::size_t i = 0; i < context_stack_.size(); ++i) {
+            const auto& context = context_stack_[i];
+
+            if (!context.key.empty()) {
+                // This context represents a value accessed by object key
+                std::string escaped_key = escape_json_pointer_component(context.key);
+                result += "/" + escaped_key;
+            }
+
+            // If this context is an array element (not the root array), add the index
+            if (i > 0 && context_stack_[i - 1].type == ContainerType::Array) {
+                result += "/" + std::to_string(context_stack_[i - 1].array_index);
+            }
+        }
+
+        // Add current key if we're parsing a value in an object
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object
+            && !current_key_.empty()) {
+            std::string escaped_key = escape_json_pointer_component(current_key_);
+            result += "/" + escaped_key;
+        }
+
+        // If we're parsing a value in an array, add the current array index
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Array) {
+            result += "/" + std::to_string(context_stack_.back().array_index);
+        }
+
+        return result;
+    }
+    // NOLINTEND(readability-function-size)
 
     void return_to_container_or_start() {
         if (context_stack_.empty()) {
@@ -651,11 +715,19 @@ private:
     void handle_object_opening() {
         // Create new ParseContext for object
         ParseContext context(root_node_, ContainerType::Object);
+
+        // Store the current key in the new context if we're inside an object
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object
+            && !current_key_.empty()) {
+            context.key = current_key_;
+        }
+
         context_stack_.push_back(context);
 
         // Emit on_enter_object event
         if (events_.on_enter_object) {
-            events_.on_enter_object(""); // No key for root object
+            // Pass empty string for now to maintain compatibility
+            events_.on_enter_object("");
         }
 
         // Transition to InObject state
@@ -665,6 +737,13 @@ private:
     void handle_array_opening() {
         // Create new ParseContext for array
         ParseContext context(root_node_, ContainerType::Array);
+
+        // Store the current key in the new context if we're inside an object
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object
+            && !current_key_.empty()) {
+            context.key = current_key_;
+        }
+
         context_stack_.push_back(context);
 
         // Emit on_enter_array event
