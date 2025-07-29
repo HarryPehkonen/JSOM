@@ -630,7 +630,8 @@ private:
         }
     }
 
-    [[nodiscard]] static auto escape_json_pointer_component(const std::string& component) -> std::string {
+    [[nodiscard]] static auto escape_json_pointer_component(const std::string& component)
+        -> std::string {
         std::string escaped = component;
         std::size_t pos = 0;
         // Escape ~ first (~ -> ~0)
@@ -932,9 +933,7 @@ public:
         }
 
         if (!context_stack_.empty()) {
-            if (events_.on_error) {
-                events_.on_error({position_, "Unexpected end of input: unclosed containers", ""});
-            }
+            emit_error("Unexpected end of input: unclosed containers");
         }
     }
     // NOLINTEND(readability-function-size)
