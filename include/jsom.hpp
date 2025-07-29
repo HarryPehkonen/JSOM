@@ -263,6 +263,7 @@ struct ParseContext {
     PathNode* node;
     ContainerType type;
     bool expecting_key;
+    bool expecting_colon{false};
     std::size_t array_index{0};
 
     ParseContext(PathNode* path_node, ContainerType container_type)
@@ -306,6 +307,9 @@ private:
     std::size_t position_{0};
     bool in_escape_{false};
     std::string unicode_buffer_;
+    std::string current_key_;
+    bool has_pushed_back_char_{false};
+    char pushed_back_char_;
 
 public:
     explicit StreamingParser(std::unique_ptr<IAllocator> alloc
@@ -324,6 +328,12 @@ public:
 
     // NOLINTNEXTLINE(readability-identifier-length)
     void feed_character(char c) {
+        if (has_pushed_back_char_) {
+            // Process the pushed back character first
+            char pushed_char = pushed_back_char_;
+            has_pushed_back_char_ = false;
+            process_character_in_state(pushed_char);
+        }
         ++position_;
         process_character_in_state(c);
     }
@@ -359,6 +369,7 @@ private:
         }
     }
 
+    // NOLINTBEGIN(readability-function-size)
     // NOLINTNEXTLINE(readability-identifier-length)
     void handle_start_state(char c) {
         // Skip whitespace
@@ -392,10 +403,14 @@ private:
         } else if (c == ']') {
             // End of array
             handle_array_closing();
+        } else if (c == ':') {
+            // Colon separator
+            handle_colon_separator();
         } else {
             emit_error("Unexpected character in start state");
         }
     }
+    // NOLINTEND(readability-function-size)
 
     // NOLINTNEXTLINE(readability-identifier-length)
     void handle_literal_state(char c) {
@@ -418,10 +433,10 @@ private:
             // Valid number characters (digits and scientific notation characters)
             value_buffer_.push_back(c);
         } else {
-            // End of number - emit value and handle the terminating character
+            // End of number - emit value and push back the terminating character
             complete_number_value();
-            // Process the terminating character in the appropriate state
-            process_character_in_state(c);
+            // Push back the terminating character to be processed in the correct state
+            push_back_character(c);
         }
     }
 
@@ -444,12 +459,14 @@ private:
         }
 
         emit_value(type, value_buffer_);
+        update_object_state_after_value();
         return_to_container_or_start();
         value_buffer_.clear();
     }
 
     void complete_number_value() {
         emit_value(JsonType::Number, value_buffer_);
+        update_object_state_after_value();
         return_to_container_or_start();
         value_buffer_.clear();
     }
@@ -569,7 +586,20 @@ private:
     }
 
     void complete_string_value() {
-        emit_value(JsonType::String, value_buffer_);
+        // Check if this string is an object key
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object
+            && context_stack_.back().expecting_key) {
+
+            // This is an object key - store it and expect colon next
+            current_key_ = value_buffer_;
+            context_stack_.back().expecting_key = false;
+            context_stack_.back().expecting_colon = true;
+        } else {
+            // This is a regular string value
+            emit_value(JsonType::String, value_buffer_);
+            update_object_state_after_value();
+        }
+
         return_to_container_or_start();
         value_buffer_.clear();
         in_escape_ = false;
@@ -594,20 +624,40 @@ private:
             state_ = ParseState::Start;
         } else {
             ParseContext& current = context_stack_.back();
-            state_ = (current.type == ContainerType::Object) ? ParseState::InObject : ParseState::InArray;
+            state_ = (current.type == ContainerType::Object) ? ParseState::InObject
+                                                             : ParseState::InArray;
         }
+    }
+
+    void update_object_state_after_value() {
+        // If we just emitted a value in an object, expect next key (after comma)
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object) {
+            context_stack_.back().expecting_key = true;
+            current_key_.clear(); // Clear the stored key
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    void push_back_character(char c) {
+        if (has_pushed_back_char_) {
+            // Can only push back one character at a time
+            emit_error("Internal error: multiple character push-back");
+            return;
+        }
+        pushed_back_char_ = c;
+        has_pushed_back_char_ = true;
     }
 
     void handle_object_opening() {
         // Create new ParseContext for object
         ParseContext context(root_node_, ContainerType::Object);
         context_stack_.push_back(context);
-        
+
         // Emit on_enter_object event
         if (events_.on_enter_object) {
-            events_.on_enter_object("");  // No key for root object
+            events_.on_enter_object(""); // No key for root object
         }
-        
+
         // Transition to InObject state
         state_ = ParseState::InObject;
     }
@@ -616,12 +666,12 @@ private:
         // Create new ParseContext for array
         ParseContext context(root_node_, ContainerType::Array);
         context_stack_.push_back(context);
-        
+
         // Emit on_enter_array event
         if (events_.on_enter_array) {
             events_.on_enter_array();
         }
-        
+
         // Transition to InArray state
         state_ = ParseState::InArray;
     }
@@ -642,12 +692,12 @@ private:
 
         // Pop the object context
         context_stack_.pop_back();
-        
+
         // Emit on_exit_container event
         if (events_.on_exit_container) {
             events_.on_exit_container();
         }
-        
+
         // Return to appropriate state
         return_to_container_or_start();
     }
@@ -668,16 +718,34 @@ private:
 
         // Pop the array context
         context_stack_.pop_back();
-        
+
         // Emit on_exit_container event
         if (events_.on_exit_container) {
             events_.on_exit_container();
         }
-        
+
         // Return to appropriate state
         return_to_container_or_start();
     }
 
+    void handle_colon_separator() {
+        if (context_stack_.empty() || context_stack_.back().type != ContainerType::Object) {
+            emit_error("Unexpected ':' outside of object");
+            state_ = ParseState::Error;
+            return;
+        }
+
+        if (context_stack_.back().expecting_key || !context_stack_.back().expecting_colon) {
+            emit_error("Expected key before ':'");
+            state_ = ParseState::Error;
+            return;
+        }
+
+        // Colon found after key, now expect value
+        context_stack_.back().expecting_colon = false;
+    }
+
+    // NOLINTBEGIN(readability-function-size)
     // NOLINTNEXTLINE(readability-identifier-length)
     void handle_object_state(char c) {
         // Skip whitespace
@@ -686,17 +754,45 @@ private:
         }
 
         if (c == '}') {
-            // End of object
+            // End of object - clear any pending expectations
+            if (!context_stack_.empty()) {
+                context_stack_.back().expecting_key = false;
+                context_stack_.back().expecting_colon = false;
+            }
             handle_object_closing();
         } else if (c == ',') {
-            // Comma separator - just skip for now (Phase 5 will handle properly)
+            // Comma separator - expect next key
+            if (!context_stack_.empty()) {
+                context_stack_.back().expecting_key = true;
+            }
             return;
+        } else if (c == ':') {
+            // Colon separator - expect value after key
+            handle_colon_separator();
         } else {
-            // For now, treat any other character as start of value
-            // This will be expanded in Phase 5 for key-value parsing
-            handle_start_state(c);
+            // Check if we're expecting a colon and got something else
+            if (!context_stack_.empty() && context_stack_.back().expecting_colon) {
+                emit_error("Expected ':' after object key");
+                state_ = ParseState::Error;
+                return;
+            }
+
+            // Parse key or value based on current state
+            if (!context_stack_.empty() && context_stack_.back().expecting_key) {
+                // Must be a string key
+                if (c == '"') {
+                    handle_start_state(c);
+                } else {
+                    emit_error("Object key must be a string");
+                    state_ = ParseState::Error;
+                }
+            } else {
+                // Parse value
+                handle_start_state(c);
+            }
         }
     }
+    // NOLINTEND(readability-function-size)
 
     // NOLINTNEXTLINE(readability-identifier-length)
     void handle_array_state(char c) {
@@ -709,11 +805,13 @@ private:
             // End of array
             handle_array_closing();
         } else if (c == ',') {
-            // Comma separator - just skip for now (Phase 5 will handle properly)
+            // Comma separator - increment array index for next element
+            if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Array) {
+                context_stack_.back().array_index++;
+            }
             return;
         } else {
-            // For now, treat any other character as start of value
-            // This will be expanded in Phase 5 for element parsing
+            // Parse array element value
             handle_start_state(c);
         }
     }
@@ -726,7 +824,15 @@ public:
         }
     }
 
+    // NOLINTBEGIN(readability-function-size)
     void end_input() {
+        // Process any pushed back character first
+        if (has_pushed_back_char_) {
+            char pushed_char = pushed_back_char_;
+            has_pushed_back_char_ = false;
+            process_character_in_state(pushed_char);
+        }
+
         // Complete any pending value
         if (state_ == ParseState::InNumber) {
             complete_number_value();
@@ -752,6 +858,7 @@ public:
             }
         }
     }
+    // NOLINTEND(readability-function-size)
 
     void set_events(const ParseEvents& events) { events_ = events; }
 
@@ -762,6 +869,8 @@ public:
         position_ = 0;
         in_escape_ = false;
         unicode_buffer_.clear();
+        current_key_.clear();
+        has_pushed_back_char_ = false;
         allocator_->reset();
 
         root_node_ = static_cast<PathNode*>(allocator_->allocate(sizeof(PathNode)));
