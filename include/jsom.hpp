@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <iomanip>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -1035,6 +1038,49 @@ public:
 // Forward declarations
 class JsonDocument;
 class BatchParser;
+class SmartJsonFormatter;
+
+// JSON formatting options for intelligent serialization
+struct JsonFormatOptions {
+    bool pretty = false;    // Enable pretty printing
+    int indent_size = 2;    // Spaces per indent level
+    bool sort_keys = false; // Sort object keys alphabetically
+
+    // Smart compacting controls
+    int max_inline_array_size = 10;    // Arrays with <= elements stay on one line
+    int max_inline_object_size = 3;    // Objects with <= properties stay on one line
+    int max_inline_string_length = 40; // Strings <= length don't break structure
+
+    // Special handling
+    bool quote_keys = true;      // Quote object keys (JSON standard)
+    bool trailing_comma = false; // Add trailing commas (non-standard)
+    bool escape_unicode = false; // Escape non-ASCII as \uXXXX
+    int max_depth = 100;         // Maximum nesting depth
+};
+
+// Predefined format presets
+namespace FormatPresets {
+inline const JsonFormatOptions Compact{}; // Default compact format
+
+inline const JsonFormatOptions Pretty{
+    .pretty = true, .indent_size = 2, .max_inline_array_size = 10, .max_inline_object_size = 3};
+
+inline const JsonFormatOptions Config{.pretty = true,
+                                      .indent_size = 2,
+                                      .sort_keys = true,
+                                      .max_inline_array_size = 5,
+                                      .max_inline_object_size = 1};
+
+inline const JsonFormatOptions Api{
+    .pretty = true, .indent_size = 2, .max_inline_array_size = 20, .max_inline_object_size = 5};
+
+inline const JsonFormatOptions Debug{.pretty = true,
+                                     .indent_size = 4,
+                                     .sort_keys = true,
+                                     .max_inline_array_size = 1,
+                                     .max_inline_object_size = 0,
+                                     .escape_unicode = true};
+} // namespace FormatPresets
 
 // BatchParser JsonType enum - extends the existing JsonType concept
 enum class BatchJsonType : std::uint8_t { Null, Boolean, Number, String, Object, Array };
@@ -1071,6 +1117,7 @@ class BatchParser;
 // JsonDocument - The core DOM-style JSON value class
 class JsonDocument {
     friend class BatchParser;
+    friend class SmartJsonFormatter;
 
 private:
     BatchJsonType type_{BatchJsonType::Null};
@@ -1364,12 +1411,14 @@ private:
     }
 
 public:
-    // Basic serialization - compact format
-    [[nodiscard]] auto to_json() const -> std::string {
-        std::ostringstream oss;
-        write_json_compact(oss);
-        return oss.str();
-    }
+    // Basic serialization - compact format (implemented after FormatPresets)
+    [[nodiscard]] auto to_json() const -> std::string;
+
+    // Intelligent JSON serialization with format options (implemented after SmartJsonFormatter)
+    [[nodiscard]] auto to_json(const JsonFormatOptions& options) const -> std::string;
+
+    // Convenient pretty printing (implemented after FormatPresets)
+    [[nodiscard]] auto to_json(bool pretty) const -> std::string;
 
 private:
     void write_primitive_to_stream(std::ostream& out) const {
@@ -1465,6 +1514,300 @@ template <> inline auto JsonDocument::as<std::string>() const -> std::string {
         throw TypeException("Expected string, got " + std::to_string(static_cast<int>(type_)));
     }
     return *storage_.string;
+}
+
+// Smart JSON formatter with intelligent pretty printing
+class SmartJsonFormatter {
+private:
+    std::ostream& out_;
+    const JsonFormatOptions& options_;
+    int current_indent_level_{0};
+    bool need_comma_{false};
+
+public:
+    SmartJsonFormatter(std::ostream& out, const JsonFormatOptions& options)
+        : out_(out), options_(options) {}
+
+    void write(const JsonDocument& doc);
+
+private:
+    void write_indent();
+    void write_newline();
+    void write_value(const JsonDocument& value);
+    void write_string(const std::string& str);
+    void write_object(const JsonDocument& obj);
+    void write_array(const JsonDocument& arr);
+    void write_inline_object(const JsonDocument& obj);
+    void write_inline_array(const JsonDocument& arr);
+
+    [[nodiscard]] auto should_inline_array(const JsonDocument& arr) const -> bool;
+    [[nodiscard]] auto should_inline_object(const JsonDocument& obj) const -> bool;
+
+    // Helper methods for write_value
+    void write_number(double num);
+
+    // Helper methods for write_string
+    void write_escaped_char(char c);            // NOLINT(readability-identifier-length)
+    auto write_standard_escape(char c) -> bool; // NOLINT(readability-identifier-length)
+    void write_unicode_escape(unsigned char c); // NOLINT(readability-identifier-length)
+
+    static constexpr unsigned char CONTROL_CHAR_THRESHOLD = 0x20;
+};
+
+// SmartJsonFormatter implementation
+inline void SmartJsonFormatter::write(const JsonDocument& doc) { write_value(doc); }
+
+inline void SmartJsonFormatter::write_indent() {
+    if (options_.pretty) {
+        for (int i = 0; i < current_indent_level_ * options_.indent_size; ++i) {
+            out_ << ' ';
+        }
+    }
+}
+
+inline void SmartJsonFormatter::write_newline() {
+    if (options_.pretty) {
+        out_ << '\n';
+    }
+}
+
+inline void SmartJsonFormatter::write_value(const JsonDocument& value) {
+    switch (value.type()) {
+    case BatchJsonType::Null:
+        out_ << "null";
+        break;
+    case BatchJsonType::Boolean:
+        out_ << (value.as<bool>() ? "true" : "false");
+        break;
+    case BatchJsonType::Number:
+        write_number(value.as<double>());
+        break;
+    case BatchJsonType::String:
+        write_string(value.as<std::string>());
+        break;
+    case BatchJsonType::Object:
+        write_object(value);
+        break;
+    case BatchJsonType::Array:
+        write_array(value);
+        break;
+    }
+}
+
+inline void SmartJsonFormatter::write_string(const std::string& str) {
+    out_ << '"';
+    for (char c : str) { // NOLINT(readability-identifier-length)
+        write_escaped_char(c);
+    }
+    out_ << '"';
+}
+
+inline void SmartJsonFormatter::write_object(const JsonDocument& obj) {
+    if (should_inline_object(obj)) {
+        write_inline_object(obj);
+    } else {
+        out_ << '{';
+        if (!obj.empty()) {
+            current_indent_level_++;
+            bool first = true;
+
+            for (const auto& pair : *obj.storage_.object) {
+                if (!first) {
+                    out_ << ',';
+                }
+                write_newline();
+                write_indent();
+                write_string(pair.first);
+                out_ << (options_.pretty ? ": " : ":");
+                write_value(pair.second);
+                first = false;
+            }
+
+            current_indent_level_--;
+            write_newline();
+            write_indent();
+        }
+        out_ << '}';
+    }
+}
+
+inline void SmartJsonFormatter::write_array(const JsonDocument& arr) {
+    if (should_inline_array(arr)) {
+        write_inline_array(arr);
+    } else {
+        out_ << '[';
+        if (!arr.empty()) {
+            current_indent_level_++;
+            bool first = true;
+
+            for (const auto& value : *arr.storage_.array) {
+                if (!first) {
+                    out_ << ',';
+                }
+                write_newline();
+                write_indent();
+                write_value(value);
+                first = false;
+            }
+
+            current_indent_level_--;
+            write_newline();
+            write_indent();
+        }
+        out_ << ']';
+    }
+}
+
+inline void SmartJsonFormatter::write_inline_object(const JsonDocument& obj) {
+    out_ << '{';
+    bool first = true;
+    for (const auto& pair : *obj.storage_.object) {
+        if (!first) {
+            out_ << (options_.pretty ? ", " : ",");
+        }
+        write_string(pair.first);
+        out_ << (options_.pretty ? ": " : ":");
+        write_value(pair.second);
+        first = false;
+    }
+    out_ << '}';
+}
+
+inline void SmartJsonFormatter::write_inline_array(const JsonDocument& arr) {
+    out_ << '[';
+    bool first = true;
+    for (const auto& value : *arr.storage_.array) {
+        if (!first) {
+            out_ << (options_.pretty ? ", " : ",");
+        }
+        write_value(value);
+        first = false;
+    }
+    out_ << ']';
+}
+
+inline auto SmartJsonFormatter::should_inline_array(const JsonDocument& arr) const -> bool {
+    if (!options_.pretty) {
+        return true; // Everything inline in compact mode
+    }
+
+    if (arr.empty()) {
+        return true; // Empty arrays are always inline
+    }
+
+    if (arr.size() > static_cast<size_t>(options_.max_inline_array_size)) {
+        return false; // Array is too long
+    }
+
+    // Check if all elements are simple (no nested containers)
+    return std::all_of(
+        arr.storage_.array->begin(), arr.storage_.array->end(),
+        [](const JsonDocument& value) { return !value.is_object() && !value.is_array(); });
+}
+
+inline auto SmartJsonFormatter::should_inline_object(const JsonDocument& obj) const -> bool {
+    if (!options_.pretty) {
+        return true; // Everything inline in compact mode
+    }
+
+    if (obj.empty()) {
+        return true; // Empty objects are always inline
+    }
+
+    if (obj.size() > static_cast<size_t>(options_.max_inline_object_size)) {
+        return false;
+    }
+
+    // Check if all values are simple (no nested containers)
+    return std::all_of(
+        obj.storage_.object->begin(), obj.storage_.object->end(),
+        [](const auto& pair) { return !pair.second.is_object() && !pair.second.is_array(); });
+}
+
+inline void SmartJsonFormatter::write_number(double num) {
+    // Check if it's actually an integer
+    auto int_val = static_cast<long long>(num);
+    if (static_cast<double>(int_val) == num && num >= LLONG_MIN && num <= LLONG_MAX) {
+        out_ << static_cast<long long>(num);
+    } else {
+        // Format floating point numbers without scientific notation
+        std::ostringstream temp;
+        temp << std::fixed << num;
+        std::string str = temp.str();
+
+        // Remove trailing zeros after decimal point
+        if (str.find('.') != std::string::npos) {
+            str.erase(str.find_last_not_of('0') + 1);
+            if (str.back() == '.') {
+                str.pop_back();
+            }
+        }
+        out_ << str;
+    }
+}
+
+// NOLINTNEXTLINE(readability-identifier-length)
+inline void SmartJsonFormatter::write_escaped_char(char c) {
+    if (write_standard_escape(c)) {
+        return;
+    }
+
+    // NOLINTNEXTLINE(readability-identifier-length)
+    auto uc = static_cast<unsigned char>(c);
+    if (uc < CONTROL_CHAR_THRESHOLD) {
+        write_unicode_escape(uc);
+    } else {
+        out_ << c;
+    }
+}
+
+// NOLINTNEXTLINE(readability-identifier-length)
+inline auto SmartJsonFormatter::write_standard_escape(char c) -> bool {
+    switch (c) {
+    case '"':
+        out_ << "\\\"";
+        return true;
+    case '\\':
+        out_ << "\\\\";
+        return true;
+    case '\b':
+        out_ << "\\b";
+        return true;
+    case '\f':
+        out_ << "\\f";
+        return true;
+    case '\n':
+        out_ << "\\n";
+        return true;
+    case '\r':
+        out_ << "\\r";
+        return true;
+    case '\t':
+        out_ << "\\t";
+        return true;
+    default:
+        return false;
+    }
+}
+
+// NOLINTNEXTLINE(readability-identifier-length)
+inline void SmartJsonFormatter::write_unicode_escape(unsigned char c) {
+    out_ << "\\u" << std::hex << std::setfill('0') << std::setw(4) << static_cast<unsigned int>(c)
+         << std::dec;
+}
+
+// JsonDocument method implementations (defined after SmartJsonFormatter)
+inline auto JsonDocument::to_json(const JsonFormatOptions& options) const -> std::string {
+    std::ostringstream stream;
+    SmartJsonFormatter formatter(stream, options);
+    formatter.write(*this);
+    return stream.str();
+}
+
+inline auto JsonDocument::to_json() const -> std::string { return to_json(FormatPresets::Compact); }
+
+inline auto JsonDocument::to_json(bool pretty) const -> std::string {
+    return pretty ? to_json(FormatPresets::Pretty) : to_json(FormatPresets::Compact);
 }
 
 // BatchParser class - integrates with JSOM StreamingParser
