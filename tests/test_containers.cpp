@@ -14,7 +14,7 @@ protected:
 
         // Set up event callbacks
         jsom::ParseEvents events;
-        events.on_value = [this](const jsom::JsonValue& value) {
+        events.on_value = [this](const jsom::JsonEvent& value) {
             values_.emplace_back(value.type(), value.raw_value(), value.path());
         };
         events.on_error = [this](const jsom::ParseError& error) {

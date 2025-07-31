@@ -5,7 +5,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
+#include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -127,7 +130,7 @@ constexpr std::size_t MAX_LITERAL_LENGTH = 5;
 // ASCII control character threshold (characters below 0x20 must be escaped)
 constexpr std::uint8_t ASCII_CONTROL_THRESHOLD = 0x20;
 
-class JsonValue;
+class JsonEvent;
 struct PathNode;
 struct ParseError;
 
@@ -147,7 +150,7 @@ enum class ParseState : std::uint8_t {
 };
 
 struct ParseEvents {
-    std::function<void(const JsonValue&)> on_value;
+    std::function<void(const JsonEvent&)> on_value;
     std::function<void(const std::string&)> on_enter_object;
     std::function<void()> on_enter_array;
     std::function<void()> on_exit_container;
@@ -272,7 +275,7 @@ struct ParseContext {
           expecting_key(container_type == ContainerType::Object) {}
 };
 
-class JsonValue {
+class JsonEvent {
 private:
     JsonType type_;
     std::string raw_value_;
@@ -280,10 +283,10 @@ private:
     std::string path_override_;
 
 public:
-    JsonValue(JsonType type, std::string value, PathNode* node)
+    JsonEvent(JsonType type, std::string value, PathNode* node)
         : type_(type), raw_value_(std::move(value)), path_node_(node) {}
 
-    JsonValue(JsonType type, std::string value, std::string path)
+    JsonEvent(JsonType type, std::string value, std::string path)
         : type_(type), raw_value_(std::move(value)), path_node_(nullptr),
           path_override_(std::move(path)) {}
 
@@ -317,6 +320,10 @@ private:
     bool in_escape_{false};
     std::string unicode_buffer_;
     std::string current_key_;
+    mutable std::string cached_json_pointer_;             // Cached JSON Pointer path
+    mutable std::size_t last_context_size_{0};            // Track when to invalidate cache
+    mutable std::string last_current_key_;                // Track key changes
+    mutable std::vector<std::size_t> last_array_indices_; // Track array index changes
     bool has_pushed_back_char_{false};
     char pushed_back_char_;
 
@@ -616,10 +623,10 @@ private:
 
     void emit_value(JsonType type, const std::string& value) {
         if (events_.on_value) {
-            // Create JsonValue with current JSON Pointer path
+            // Create JsonEvent with current JSON Pointer path
             std::string json_pointer = generate_current_json_pointer();
-            JsonValue json_value(type, value, json_pointer);
-            events_.on_value(json_value);
+            JsonEvent json_event(type, value, json_pointer);
+            events_.on_value(json_event);
         }
     }
 
@@ -648,8 +655,67 @@ private:
         return escaped;
     }
 
-    // NOLINTBEGIN(readability-function-size)
     [[nodiscard]] auto generate_current_json_pointer() const -> std::string {
+        // Check if cache is valid (context stack size, current key, and array indices haven't
+        // changed)
+        if (is_cache_valid()) {
+            return cached_json_pointer_;
+        }
+
+        // Cache is invalid, rebuild the path
+        std::string result = build_json_pointer_from_context();
+
+        // Update cache
+        cached_json_pointer_ = result;
+        update_cache_state();
+
+        return result;
+    }
+
+    [[nodiscard]] auto is_cache_valid() const -> bool {
+        if (cached_json_pointer_.empty()) {
+            return false;
+        }
+
+        if (last_context_size_ != context_stack_.size()) {
+            return false;
+        }
+
+        if (last_current_key_ != current_key_) {
+            return false;
+        }
+
+        // Check if array indices have changed
+        if (last_array_indices_.size() != context_stack_.size()) {
+            return false;
+        }
+
+        for (std::size_t i = 0; i < context_stack_.size(); ++i) {
+            if (context_stack_[i].type == ContainerType::Array) {
+                if (i >= last_array_indices_.size()
+                    || last_array_indices_[i] != context_stack_[i].array_index) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    void update_cache_state() const {
+        last_context_size_ = context_stack_.size();
+        last_current_key_ = current_key_;
+
+        // Update array indices snapshot
+        last_array_indices_.clear();
+        last_array_indices_.reserve(context_stack_.size());
+        for (const auto& context : context_stack_) {
+            last_array_indices_.push_back(context.array_index);
+        }
+    }
+
+    // NOLINTBEGIN(readability-function-size)
+    [[nodiscard]] auto build_json_pointer_from_context() const -> std::string {
         std::string result;
 
         // Build path from context stack
@@ -725,6 +791,9 @@ private:
 
         context_stack_.push_back(context);
 
+        // Invalidate JSON pointer cache due to context change
+        cached_json_pointer_.clear();
+
         // Emit on_enter_object event
         if (events_.on_enter_object) {
             // Pass empty string for now to maintain compatibility
@@ -746,6 +815,9 @@ private:
         }
 
         context_stack_.push_back(context);
+
+        // Invalidate JSON pointer cache due to context change
+        cached_json_pointer_.clear();
 
         // Emit on_enter_array event
         if (events_.on_enter_array) {
@@ -955,5 +1027,886 @@ public:
         new (root_node_) PathNode(nullptr, "");
     }
 };
+
+// ============================================================================
+// BATCH PARSER - DOM-STYLE JSON PROCESSING WITH INTELLIGENT SERIALIZATION
+// ============================================================================
+
+// Forward declarations
+class JsonDocument;
+class BatchParser;
+
+// BatchParser JsonType enum - extends the existing JsonType concept
+enum class BatchJsonType : std::uint8_t { Null, Boolean, Number, String, Object, Array };
+
+// Exception hierarchy for BatchParser
+class JsonException : public std::exception {
+protected:
+    std::string message_;
+    std::string json_pointer_;
+
+public:
+    JsonException(std::string message, std::string pointer = "")
+        : message_(std::move(message)), json_pointer_(std::move(pointer)) {}
+
+    [[nodiscard]] auto what() const noexcept -> const char* override { return message_.c_str(); }
+    [[nodiscard]] auto json_pointer() const noexcept -> const std::string& { return json_pointer_; }
+};
+
+class ParseException : public JsonException {
+public:
+    ParseException(const std::string& message, const std::string& pointer = "")
+        : JsonException("Parse error: " + message, pointer) {}
+};
+
+class TypeException : public JsonException {
+public:
+    TypeException(const std::string& message, const std::string& pointer = "")
+        : JsonException("Type error: " + message, pointer) {}
+};
+
+// Forward declaration for friend class
+class BatchParser;
+
+// JsonDocument - The core DOM-style JSON value class
+class JsonDocument {
+    friend class BatchParser;
+
+private:
+    BatchJsonType type_{BatchJsonType::Null};
+
+    union Storage {
+        bool boolean;
+        double number;
+        std::string* string;
+        std::map<std::string, JsonDocument>* object;
+        std::vector<JsonDocument>* array;
+
+        Storage() : boolean(false) {}
+        ~Storage() {} // Handled by JsonDocument destructor
+    } storage_;
+
+    void destroy_storage() {
+        switch (type_) {
+        case BatchJsonType::String:
+            delete storage_.string;
+            break;
+        case BatchJsonType::Object:
+            delete storage_.object;
+            break;
+        case BatchJsonType::Array:
+            delete storage_.array;
+            break;
+        default:
+            // Primitive types don't need cleanup
+            break;
+        }
+    }
+
+public:
+    // Default constructor - creates null value
+    JsonDocument() = default;
+
+    // Constructors for each JSON type
+    explicit JsonDocument(bool value) : type_(BatchJsonType::Boolean) { storage_.boolean = value; }
+
+    explicit JsonDocument(int value) : type_(BatchJsonType::Number) {
+        storage_.number = static_cast<double>(value);
+    }
+
+    explicit JsonDocument(double value) : type_(BatchJsonType::Number) { storage_.number = value; }
+
+    explicit JsonDocument(const char* value) : type_(BatchJsonType::String) {
+        storage_.string = new std::string(value);
+    }
+
+    explicit JsonDocument(std::string value) : type_(BatchJsonType::String) {
+        storage_.string = new std::string(std::move(value));
+    }
+
+    // Initializer list constructor for objects
+    JsonDocument(std::initializer_list<std::pair<std::string, JsonDocument>> init)
+        : type_(BatchJsonType::Object) {
+        storage_.object = new std::map<std::string, JsonDocument>();
+        for (const auto& pair : init) {
+            (*storage_.object)[pair.first] = pair.second;
+        }
+    }
+
+    // Initializer list constructor for arrays
+    JsonDocument(std::initializer_list<JsonDocument> init) : type_(BatchJsonType::Array) {
+        storage_.array = new std::vector<JsonDocument>(init);
+    }
+
+    // Destructor
+    ~JsonDocument() { destroy_storage(); }
+
+    // Copy constructor
+    JsonDocument(const JsonDocument& other) : type_(other.type_) {
+        switch (type_) {
+        case BatchJsonType::Null:
+            break;
+        case BatchJsonType::Boolean:
+            storage_.boolean = other.storage_.boolean;
+            break;
+        case BatchJsonType::Number:
+            storage_.number = other.storage_.number;
+            break;
+        case BatchJsonType::String:
+            storage_.string = new std::string(*other.storage_.string);
+            break;
+        case BatchJsonType::Object:
+            storage_.object = new std::map<std::string, JsonDocument>(*other.storage_.object);
+            break;
+        case BatchJsonType::Array:
+            storage_.array = new std::vector<JsonDocument>(*other.storage_.array);
+            break;
+        }
+    }
+
+    // Move constructor
+    JsonDocument(JsonDocument&& other) noexcept : type_(other.type_), storage_(other.storage_) {
+        other.type_ = BatchJsonType::Null;
+    }
+
+    // Copy assignment
+    auto operator=(const JsonDocument& other) -> JsonDocument& {
+        if (this != &other) {
+            destroy_storage();
+            type_ = other.type_;
+
+            switch (type_) {
+            case BatchJsonType::Null:
+                break;
+            case BatchJsonType::Boolean:
+                storage_.boolean = other.storage_.boolean;
+                break;
+            case BatchJsonType::Number:
+                storage_.number = other.storage_.number;
+                break;
+            case BatchJsonType::String:
+                storage_.string = new std::string(*other.storage_.string);
+                break;
+            case BatchJsonType::Object:
+                storage_.object = new std::map<std::string, JsonDocument>(*other.storage_.object);
+                break;
+            case BatchJsonType::Array:
+                storage_.array = new std::vector<JsonDocument>(*other.storage_.array);
+                break;
+            }
+        }
+        return *this;
+    }
+
+    // Move assignment
+    auto operator=(JsonDocument&& other) noexcept -> JsonDocument& {
+        if (this != &other) {
+            destroy_storage();
+            type_ = other.type_;
+            storage_ = other.storage_;
+            other.type_ = BatchJsonType::Null;
+        }
+        return *this;
+    }
+
+    // Type checking methods
+    [[nodiscard]] auto type() const noexcept -> BatchJsonType { return type_; }
+    [[nodiscard]] auto is_null() const noexcept -> bool { return type_ == BatchJsonType::Null; }
+    [[nodiscard]] auto is_bool() const noexcept -> bool { return type_ == BatchJsonType::Boolean; }
+    [[nodiscard]] auto is_number() const noexcept -> bool { return type_ == BatchJsonType::Number; }
+    [[nodiscard]] auto is_string() const noexcept -> bool { return type_ == BatchJsonType::String; }
+    [[nodiscard]] auto is_object() const noexcept -> bool { return type_ == BatchJsonType::Object; }
+    [[nodiscard]] auto is_array() const noexcept -> bool { return type_ == BatchJsonType::Array; }
+
+    // Type conversion methods - will implement template specializations
+    template <typename T> auto as() const -> T;
+
+    // Container access methods
+    // Object access
+    auto operator[](const std::string& key) -> JsonDocument& {
+        if (type_ != BatchJsonType::Object) {
+            throw TypeException("Cannot access non-object with string key");
+        }
+        return (*storage_.object)[key];
+    }
+
+    auto operator[](const std::string& key) const -> const JsonDocument& {
+        if (type_ != BatchJsonType::Object) {
+            throw TypeException("Cannot access non-object with string key");
+        }
+
+        // NOLINTNEXTLINE(readability-identifier-length)
+        auto it = storage_.object->find(key);
+        if (it == storage_.object->end()) {
+            throw std::out_of_range("Key not found: " + key);
+        }
+        return it->second;
+    }
+
+    // Array access
+    auto operator[](std::size_t index) -> JsonDocument& {
+        if (type_ != BatchJsonType::Array) {
+            throw TypeException("Cannot access non-array with numeric index");
+        }
+        if (index >= storage_.array->size()) {
+            throw std::out_of_range("Array index out of range");
+        }
+        return (*storage_.array)[index];
+    }
+
+    auto operator[](std::size_t index) const -> const JsonDocument& {
+        if (type_ != BatchJsonType::Array) {
+            throw TypeException("Cannot access non-array with numeric index");
+        }
+        if (index >= storage_.array->size()) {
+            throw std::out_of_range("Array index out of range");
+        }
+        return (*storage_.array)[index];
+    }
+
+    // Safe access with bounds checking
+    auto at(const std::string& key) -> JsonDocument& {
+        if (type_ != BatchJsonType::Object) {
+            throw TypeException("Cannot access non-object with string key");
+        }
+        return storage_.object->at(key);
+    }
+
+    [[nodiscard]] auto at(const std::string& key) const -> const JsonDocument& {
+        if (type_ != BatchJsonType::Object) {
+            throw TypeException("Cannot access non-object with string key");
+        }
+        return storage_.object->at(key);
+    }
+
+    auto at(std::size_t index) -> JsonDocument& {
+        if (type_ != BatchJsonType::Array) {
+            throw TypeException("Cannot access non-array with numeric index");
+        }
+        return storage_.array->at(index);
+    }
+
+    [[nodiscard]] auto at(std::size_t index) const -> const JsonDocument& {
+        if (type_ != BatchJsonType::Array) {
+            throw TypeException("Cannot access non-array with numeric index");
+        }
+        return storage_.array->at(index);
+    }
+
+    // Container size
+    [[nodiscard]] auto size() const -> std::size_t {
+        switch (type_) {
+        case BatchJsonType::Object:
+            return storage_.object->size();
+        case BatchJsonType::Array:
+            return storage_.array->size();
+        case BatchJsonType::String:
+            return storage_.string->size();
+        default:
+            throw TypeException("Size not supported for this type");
+        }
+    }
+
+    [[nodiscard]] auto empty() const -> bool {
+        switch (type_) {
+        case BatchJsonType::Object:
+            return storage_.object->empty();
+        case BatchJsonType::Array:
+            return storage_.array->empty();
+        case BatchJsonType::String:
+            return storage_.string->empty();
+        default:
+            return false; // Primitives are never "empty"
+        }
+    }
+
+private:
+    // Helper methods for DocumentBuilder (friend class access)
+    void init_as_object() {
+        destroy_storage();
+        type_ = BatchJsonType::Object;
+        storage_.object = new std::map<std::string, JsonDocument>();
+    }
+
+    void init_as_array() {
+        destroy_storage();
+        type_ = BatchJsonType::Array;
+        storage_.array = new std::vector<JsonDocument>();
+    }
+
+    void add_to_object(const std::string& key, JsonDocument value) {
+        if (type_ == BatchJsonType::Object) {
+            (*storage_.object)[key] = std::move(value);
+        }
+    }
+
+    void add_to_array(JsonDocument value) {
+        if (type_ == BatchJsonType::Array) {
+            storage_.array->push_back(std::move(value));
+        }
+    }
+
+    auto get_object_ref(const std::string& key) -> JsonDocument* {
+        if (type_ == BatchJsonType::Object) {
+
+            // NOLINTNEXTLINE(readability-identifier-length)
+            auto it = storage_.object->find(key);
+            return (it != storage_.object->end()) ? &it->second : nullptr;
+        }
+        return nullptr;
+    }
+
+    auto get_array_back() -> JsonDocument* {
+        if (type_ == BatchJsonType::Array && !storage_.array->empty()) {
+            return &storage_.array->back();
+        }
+        return nullptr;
+    }
+
+public:
+    // Basic serialization - compact format
+    [[nodiscard]] auto to_json() const -> std::string {
+        std::ostringstream oss;
+        write_json_compact(oss);
+        return oss.str();
+    }
+
+private:
+    void write_primitive_to_stream(std::ostream& out) const {
+        switch (type_) {
+        case BatchJsonType::Null:
+            out << "null";
+            break;
+        case BatchJsonType::Boolean:
+            out << (storage_.boolean ? "true" : "false");
+            break;
+        case BatchJsonType::Number:
+            out << storage_.number;
+            break;
+        case BatchJsonType::String:
+            out << '"' << *storage_.string << '"'; // TODO: Proper escaping
+            break;
+        default:
+            break;
+        }
+    }
+
+    void write_object_to_stream(std::ostream& out) const {
+        out << '{';
+        bool first = true;
+        for (const auto& pair : *storage_.object) {
+            const auto& key = pair.first;
+            const auto& value = pair.second;
+            if (!first) {
+                out << ',';
+            }
+            out << '"' << key << "\":";
+            value.write_json_compact(out);
+            first = false;
+        }
+        out << '}';
+    }
+
+    void write_array_to_stream(std::ostream& out) const {
+        out << '[';
+        bool first_elem = true;
+        for (const auto& value : *storage_.array) {
+            if (!first_elem) {
+                out << ',';
+            }
+            value.write_json_compact(out);
+            first_elem = false;
+        }
+        out << ']';
+    }
+
+    void write_json_compact(std::ostream& out) const {
+        switch (type_) {
+        case BatchJsonType::Null:
+        case BatchJsonType::Boolean:
+        case BatchJsonType::Number:
+        case BatchJsonType::String:
+            write_primitive_to_stream(out);
+            break;
+        case BatchJsonType::Object:
+            write_object_to_stream(out);
+            break;
+        case BatchJsonType::Array:
+            write_array_to_stream(out);
+            break;
+        }
+    }
+};
+
+// Template specializations for type conversion
+template <> inline auto JsonDocument::as<bool>() const -> bool {
+    if (type_ != BatchJsonType::Boolean) {
+        throw TypeException("Expected boolean, got " + std::to_string(static_cast<int>(type_)));
+    }
+    return storage_.boolean;
+}
+
+template <> inline auto JsonDocument::as<int>() const -> int {
+    if (type_ != BatchJsonType::Number) {
+        throw TypeException("Expected number, got " + std::to_string(static_cast<int>(type_)));
+    }
+    return static_cast<int>(storage_.number);
+}
+
+template <> inline auto JsonDocument::as<double>() const -> double {
+    if (type_ != BatchJsonType::Number) {
+        throw TypeException("Expected number, got " + std::to_string(static_cast<int>(type_)));
+    }
+    return storage_.number;
+}
+
+template <> inline auto JsonDocument::as<std::string>() const -> std::string {
+    if (type_ != BatchJsonType::String) {
+        throw TypeException("Expected string, got " + std::to_string(static_cast<int>(type_)));
+    }
+    return *storage_.string;
+}
+
+// BatchParser class - integrates with JSOM StreamingParser
+class BatchParser {
+private:
+    // Document builder that converts JSOM streaming events to JsonDocument
+    class DocumentBuilder {
+    private:
+        // Container stack entry - tracks current container and next key/index
+        struct ContainerFrame {
+            JsonDocument* container;
+            std::string next_key;      // For objects: the key for the next value
+            std::size_t next_index{0}; // For arrays: the index for the next value
+            bool is_array;
+
+            ContainerFrame(JsonDocument* cont, bool array) : container(cont), is_array(array) {}
+        };
+
+        JsonDocument root_;
+        bool has_error_{false};
+        std::string error_message_;
+        bool root_initialized_{false};
+        std::vector<ContainerFrame> container_stack_; // Stack-based navigation
+
+    public:
+        void reset_builder_state() {
+            root_ = JsonDocument();
+            has_error_ = false;
+            error_message_.clear();
+            root_initialized_ = false;
+            container_stack_.clear();
+        }
+
+        void configure_parser_events(ParseEvents& events) {
+            events.on_value
+                = [this](const jsom::JsonEvent& value) { this->handle_value_optimized(value); };
+
+            events.on_enter_object = [this](const std::string& key) {
+                if (key.empty() && !root_initialized_) {
+                    // Root object starting
+                    root_.init_as_object();
+                    root_initialized_ = true;
+                }
+            };
+
+            events.on_enter_array = [this]() {
+                if (!root_initialized_) {
+                    // Root array starting
+                    root_.init_as_array();
+                    root_initialized_ = true;
+                }
+            };
+
+            events.on_exit_container = [this]() {
+                // Container exit - no action needed
+            };
+
+            events.on_error = [this](const ParseError& error) { this->handle_error(error); };
+        }
+
+        auto execute_parsing(const std::string& json) -> JsonDocument {
+            StreamingParser parser;
+            ParseEvents events;
+
+            configure_parser_events(events);
+            parser.set_events(events);
+
+            try {
+                parser.parse_string(json);
+                parser.end_input();
+
+                if (has_error_) {
+                    throw ParseException(error_message_);
+                }
+
+                return std::move(root_);
+            } catch (const std::exception& e) {
+                throw ParseException("JSON parsing failed: " + std::string(e.what()));
+            }
+        }
+
+        auto build_from_json(const std::string& json) -> JsonDocument {
+            reset_builder_state();
+            return execute_parsing(json);
+        }
+
+    private:
+        void handle_value(const jsom::JsonEvent& jsom_event) {
+            // Convert JSOM JsonEvent to JsonDocument
+            JsonDocument value;
+            switch (jsom_event.type()) {
+            case jsom::JsonType::Null:
+                value = JsonDocument(); // null
+                break;
+            case jsom::JsonType::Boolean:
+                value = JsonDocument(jsom_event.as_bool());
+                break;
+            case jsom::JsonType::Number:
+                value = JsonDocument(jsom_event.as_double());
+                break;
+            case jsom::JsonType::String:
+                value = JsonDocument(jsom_event.as_string());
+                break;
+            default:
+                return;
+            }
+
+            std::string path = jsom_event.path();
+
+            if (path.empty() || path == "/") {
+                // Root value
+                root_ = std::move(value);
+                root_initialized_ = true;
+            } else {
+                // Nested value - ensure path exists and set value
+                set_value_at_path(path, std::move(value));
+            }
+        }
+
+        // Optimized value handler with reduced path parsing
+        void handle_value_optimized(const jsom::JsonEvent& jsom_event) {
+            // Convert JSOM JsonEvent to JsonDocument
+            JsonDocument value;
+            switch (jsom_event.type()) {
+            case jsom::JsonType::Null:
+                value = JsonDocument(); // null
+                break;
+            case jsom::JsonType::Boolean:
+                value = JsonDocument(jsom_event.as_bool());
+                break;
+            case jsom::JsonType::Number:
+                value = JsonDocument(jsom_event.as_double());
+                break;
+            case jsom::JsonType::String:
+                value = JsonDocument(jsom_event.as_string());
+                break;
+            default:
+                return;
+            }
+
+            std::string path = jsom_event.path();
+
+            if (path.empty() || path == "/") {
+                // Root value
+                root_ = std::move(value);
+                root_initialized_ = true;
+            } else {
+                // Use optimized path parsing that avoids full vector creation
+                set_value_at_path_optimized(path, std::move(value));
+            }
+        }
+
+        // Optimized version that does minimal parsing compared to the original
+        void set_value_at_path_optimized(const std::string& path, JsonDocument value) {
+            // For simple paths, avoid full parsing and use direct navigation
+            if (is_simple_path(path)) {
+                set_simple_value(path, std::move(value));
+            } else {
+                // Fall back to original method for complex paths
+                set_value_at_path(path, std::move(value));
+            }
+        }
+
+        // Check if path is simple enough for direct handling
+        static auto is_simple_path(const std::string& path) -> bool {
+            // Simple path: single level like "/key" or "/0"
+            if (path.length() < 2 || path[0] != '/') {
+                return false;
+            }
+
+            // Count slashes - simple path has exactly one
+            size_t slash_count = 0;
+            for (char c : path) { // NOLINT(readability-identifier-length)
+                if (c == '/') {
+                    ++slash_count;
+                }
+            }
+            return slash_count == 1;
+        }
+
+        // Handle simple single-level paths without full parsing
+        void set_simple_value(const std::string& path, JsonDocument value) {
+            // Extract key (everything after first '/')
+            std::string key = path.substr(1);
+
+            // Ensure root is initialized
+            if (!root_initialized_) {
+                if (is_numeric(key)) {
+                    root_.init_as_array();
+                } else {
+                    root_.init_as_object();
+                }
+                root_initialized_ = true;
+            }
+
+            // Set value directly in root
+            if (root_.is_object()) {
+                root_.add_to_object(key, std::move(value));
+            } else if (root_.is_array()) {
+                size_t index = std::stoull(key);
+                extend_array_to_size(root_, index + 1);
+                (*root_.storage_.array)[index] = std::move(value);
+            }
+        }
+
+        // Helper method to initialize root container
+        void initialize_root_container(bool is_array) {
+            if (is_array) {
+                root_.init_as_array();
+            } else {
+                root_.init_as_object();
+            }
+            root_initialized_ = true;
+            container_stack_.emplace_back(&root_, is_array);
+        }
+
+        // Helper method to place container in array parent
+        static auto place_container_in_array(ContainerFrame& parent_frame,
+                                             JsonDocument&& new_container) -> JsonDocument* {
+            extend_array_to_size(*parent_frame.container, parent_frame.next_index + 1);
+            (*parent_frame.container->storage_.array)[parent_frame.next_index]
+                = std::move(new_container);
+            JsonDocument* result
+                = &(*parent_frame.container->storage_.array)[parent_frame.next_index];
+            parent_frame.next_index++;
+            return result;
+        }
+
+        // Helper method to place container in object parent
+        static auto place_container_in_object(ContainerFrame& parent_frame,
+                                              JsonDocument&& new_container) -> JsonDocument* {
+            if (!parent_frame.next_key.empty()) {
+                parent_frame.container->add_to_object(parent_frame.next_key,
+                                                      std::move(new_container));
+                JsonDocument* result
+                    = parent_frame.container->get_object_ref(parent_frame.next_key);
+                parent_frame.next_key.clear();
+                return result;
+            }
+            return nullptr;
+        }
+
+        // Generic helper for entering containers
+        void handle_enter_container(bool is_array) {
+            if (!root_initialized_) {
+                initialize_root_container(is_array);
+            } else if (!container_stack_.empty()) {
+                // Create new nested container
+                JsonDocument new_container;
+                if (is_array) {
+                    new_container.init_as_array();
+                } else {
+                    new_container.init_as_object();
+                }
+
+                auto& current_frame = container_stack_.back();
+                JsonDocument* new_container_ptr = nullptr;
+
+                if (current_frame.is_array) {
+                    new_container_ptr
+                        = place_container_in_array(current_frame, std::move(new_container));
+                } else {
+                    new_container_ptr
+                        = place_container_in_object(current_frame, std::move(new_container));
+                }
+
+                if (new_container_ptr != nullptr) {
+                    container_stack_.emplace_back(new_container_ptr, is_array);
+                }
+            }
+        }
+
+        void handle_enter_object() { handle_enter_container(false); }
+
+        void handle_enter_array() { handle_enter_container(true); }
+
+        void handle_exit_container() {
+            if (!container_stack_.empty()) {
+                container_stack_.pop_back();
+            }
+        }
+
+        // Helper method to extract just the final key/index from a JSON Pointer path
+        static auto extract_final_key_from_path(const std::string& path) -> std::string {
+            if (path.empty() || path == "/") {
+                return "";
+            }
+
+            // Find the last '/' and return everything after it
+            size_t last_slash = path.find_last_of('/');
+            if (last_slash != std::string::npos && last_slash + 1 < path.length()) {
+                return path.substr(last_slash + 1);
+            }
+
+            return path; // Fallback for paths without '/'
+        }
+
+        void ensure_root_initialized(const std::vector<std::string>& components) {
+            if (!root_initialized_) {
+                // Determine if root should be object or array based on first component
+                if (is_numeric(components[0])) {
+                    root_.init_as_array();
+                } else {
+                    root_.init_as_object();
+                }
+                root_initialized_ = true;
+            }
+        }
+
+        auto navigate_to_parent(const std::vector<std::string>& components) -> JsonDocument* {
+            JsonDocument* current = &root_;
+            for (size_t i = 0; i < components.size() - 1; ++i) {
+                current = ensure_container_exists(current, components[i], components[i + 1]);
+            }
+            return current;
+        }
+
+        static void assign_final_value(JsonDocument* parent, const std::string& final_key,
+                                       JsonDocument value) {
+            if (parent->is_object()) {
+                parent->add_to_object(final_key, std::move(value));
+            } else if (parent->is_array()) {
+                // Extend array as needed
+                size_t index = std::stoull(final_key);
+                extend_array_to_size(*parent, index + 1);
+                (*parent->storage_.array)[index] = std::move(value);
+            }
+        }
+
+        void set_value_at_path(const std::string& path, JsonDocument value) {
+            std::vector<std::string> components = parse_json_pointer(path);
+            if (components.empty()) {
+                return;
+            }
+
+            ensure_root_initialized(components);
+            JsonDocument* parent = navigate_to_parent(components);
+            assign_final_value(parent, components.back(), std::move(value));
+        }
+
+        static auto parse_json_pointer(const std::string& path) -> std::vector<std::string> {
+            std::vector<std::string> components;
+            if (path.empty() || path == "/") {
+                return components;
+            }
+
+            size_t start = (path[0] == '/') ? 1 : 0;
+            size_t pos = start;
+
+            while (pos < path.length()) {
+                size_t next_slash = path.find('/', pos);
+                if (next_slash == std::string::npos) {
+                    next_slash = path.length();
+                }
+
+                if (next_slash > pos) {
+                    components.push_back(path.substr(pos, next_slash - pos));
+                }
+                pos = next_slash + 1;
+            }
+
+            return components;
+        }
+
+        static auto is_numeric(const std::string& str) -> bool {
+            return !str.empty() && std::all_of(str.begin(), str.end(), ::isdigit);
+        }
+
+        static auto create_container_for_key(const std::string& next_key) -> JsonDocument {
+            JsonDocument new_container;
+            if (is_numeric(next_key)) {
+                new_container.init_as_array();
+            } else {
+                new_container.init_as_object();
+            }
+            return new_container;
+        }
+
+        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+        static auto ensure_object_child_exists(JsonDocument* parent, const std::string& key,
+                                               const std::string& next_key) -> JsonDocument* {
+            auto* existing = parent->get_object_ref(key);
+            if (existing == nullptr) {
+                JsonDocument new_container = create_container_for_key(next_key);
+                parent->add_to_object(key, std::move(new_container));
+                existing = parent->get_object_ref(key);
+            }
+            return existing;
+        }
+
+        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+        static auto ensure_array_element_exists(JsonDocument* parent, const std::string& key,
+                                                const std::string& next_key) -> JsonDocument* {
+            size_t index = std::stoull(key);
+            extend_array_to_size(*parent, index + 1);
+
+            JsonDocument& element = (*parent->storage_.array)[index];
+            if (element.is_null()) {
+                // Initialize based on next key
+                if (is_numeric(next_key)) {
+                    element.init_as_array();
+                } else {
+                    element.init_as_object();
+                }
+            }
+            return &element;
+        }
+
+        static auto ensure_container_exists(JsonDocument* parent, const std::string& key,
+                                            const std::string& next_key) -> JsonDocument* {
+            if (parent->is_object()) {
+                return ensure_object_child_exists(parent, key, next_key);
+            }
+            if (parent->is_array()) {
+                return ensure_array_element_exists(parent, key, next_key);
+            }
+            return nullptr;
+        }
+
+        static void extend_array_to_size(JsonDocument& arr, size_t required_size) {
+            if (arr.is_array() && arr.storage_.array->size() < required_size) {
+                arr.storage_.array->resize(required_size);
+            }
+        }
+
+        void handle_error(const ParseError& error) {
+            has_error_ = true;
+            error_message_ = error.message;
+        }
+    };
+
+public:
+    // Main parsing interface
+    static auto parse(const std::string& json) -> JsonDocument {
+        DocumentBuilder builder;
+        return builder.build_from_json(json);
+    }
+};
+
+// Convenience functions
+inline auto parse_document(const std::string& json) -> JsonDocument {
+    return BatchParser::parse(json);
+}
 
 } // namespace jsom

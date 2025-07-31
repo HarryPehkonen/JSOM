@@ -33,13 +33,13 @@ TEST_F(JSOMSmokeTest, AllocatorsWork) {
     arena_alloc->reset();
 }
 
-TEST_F(JSOMSmokeTest, JsonValueCreation) {
+TEST_F(JSOMSmokeTest, JsonEventCreation) {
     auto alloc = std::make_unique<jsom::ArenaAllocator>();
 
     auto* root = static_cast<jsom::PathNode*>(alloc->allocate(sizeof(jsom::PathNode)));
     new (root) jsom::PathNode(nullptr, "");
 
-    jsom::JsonValue value(jsom::JsonType::String, "test", root);
+    jsom::JsonEvent value(jsom::JsonType::String, "test", root);
 
     EXPECT_EQ(value.type(), jsom::JsonType::String);
     EXPECT_EQ(value.raw_value(), "test");

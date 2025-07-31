@@ -35,6 +35,7 @@ add_executable(jsom_tests
     tests/test_phase5.cpp
     tests/test_path_tracking.cpp
     tests/test_phase7.cpp
+    tests/test_batch_parser.cpp
 )
 
 target_link_libraries(jsom_tests

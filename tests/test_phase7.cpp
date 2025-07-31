@@ -11,7 +11,7 @@ protected:
 
         // Set up event callbacks
         jsom::ParseEvents events;
-        events.on_value = [this](const jsom::JsonValue& value) {
+        events.on_value = [this](const jsom::JsonEvent& value) {
             values_.emplace_back(value.type(), value.raw_value(), value.path());
         };
         events.on_error = [this](const jsom::ParseError& error) {
@@ -124,7 +124,7 @@ TEST_F(Phase7Test, ArenaAllocatorUsage) {
     std::vector<std::tuple<jsom::JsonType, std::string, std::string>> arena_values;
 
     jsom::ParseEvents events;
-    events.on_value = [&arena_values](const jsom::JsonValue& value) {
+    events.on_value = [&arena_values](const jsom::JsonEvent& value) {
         arena_values.emplace_back(value.type(), value.raw_value(), value.path());
     };
 
@@ -167,13 +167,13 @@ TEST_F(Phase7Test, ComplexNestedStructure) {
 
         if (path == "/users/0/name" && val == "Alice") {
             found_alice = true;
-	}
+        }
         if (path == "/config/timeout" && val == "5000") {
             found_timeout = true;
-	}
+        }
         if (path == "/config/endpoints/0" && val == "api.example.com") {
             found_endpoint = true;
-	}
+        }
     }
 
     EXPECT_TRUE(found_alice);
