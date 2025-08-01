@@ -39,6 +39,59 @@ if(CLI)
     message(STATUS "JSOM CLI tool enabled")
 endif()
 
+# Optional benchmarks (enabled with -DBENCHMARKS=ON)
+option(BENCHMARKS "Build performance benchmarks" OFF)
+
+if(BENCHMARKS)
+    # Disable benchmark install to keep it out of our install targets
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "Enable installation of benchmark" FORCE)
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Enable testing of the benchmark library" FORCE)
+    
+    FetchContent_Declare(
+        benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.8.3
+    )
+    
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+    )
+    
+    FetchContent_MakeAvailable(benchmark nlohmann_json)
+    
+    # Create benchmark executable
+    add_executable(jsom_benchmarks
+        benchmarks/benchmark_main.cpp
+        benchmarks/benchmark_parsing.cpp
+        benchmarks/benchmark_dom_access.cpp
+        benchmarks/benchmark_construction.cpp
+        benchmarks/benchmark_serialization.cpp
+    )
+    
+    target_link_libraries(jsom_benchmarks
+        jsom
+        benchmark::benchmark
+        benchmark::benchmark_main
+        nlohmann_json::nlohmann_json
+    )
+    
+    target_include_directories(jsom_benchmarks PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+    )
+    
+    # Add custom target to run benchmarks
+    add_custom_target(run_benchmarks
+        COMMAND jsom_benchmarks
+        DEPENDS jsom_benchmarks
+        COMMENT "Running performance benchmarks"
+    )
+    
+    message(STATUS "JSOM benchmarks enabled")
+endif()
+
 enable_testing()
 
 add_executable(jsom_tests
