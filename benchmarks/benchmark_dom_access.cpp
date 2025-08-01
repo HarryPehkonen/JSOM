@@ -197,9 +197,13 @@ BENCHMARK(BM_Nlohmann_LargeArrayIteration);
 static void BM_JSOM_DeepNestingAccess(benchmark::State& state) {
     auto doc = jsom::parse_document(benchmark_utils::get_deep_nested_json());
     for (auto _ : state) {
-        // Access deeply nested value
-        auto final_message = doc["level0"]["next"]["level1"]["next"]["level2"]["next"]
-                                ["level3"]["next"]["level4"]["next"]["final"]["message"].as<std::string>();
+        // Access deeply nested value - go through all 20 levels to reach final
+        auto final_message = doc["level0"]["next"]["level1"]["next"]["level2"]["next"]["level3"]["next"]
+                                ["level4"]["next"]["level5"]["next"]["level6"]["next"]["level7"]["next"]
+                                ["level8"]["next"]["level9"]["next"]["level10"]["next"]["level11"]["next"]
+                                ["level12"]["next"]["level13"]["next"]["level14"]["next"]["level15"]["next"]
+                                ["level16"]["next"]["level17"]["next"]["level18"]["next"]["level19"]["next"]
+                                ["final"]["message"].as<std::string>();
         benchmark::DoNotOptimize(final_message);
     }
 }
@@ -208,9 +212,13 @@ BENCHMARK(BM_JSOM_DeepNestingAccess);
 static void BM_Nlohmann_DeepNestingAccess(benchmark::State& state) {
     auto doc = nlohmann::json::parse(benchmark_utils::get_deep_nested_json());
     for (auto _ : state) {
-        // Access deeply nested value
-        auto final_message = doc["level0"]["next"]["level1"]["next"]["level2"]["next"]
-                                ["level3"]["next"]["level4"]["next"]["final"]["message"].get<std::string>();
+        // Access deeply nested value - go through all 20 levels to reach final
+        auto final_message = doc["level0"]["next"]["level1"]["next"]["level2"]["next"]["level3"]["next"]
+                                ["level4"]["next"]["level5"]["next"]["level6"]["next"]["level7"]["next"]
+                                ["level8"]["next"]["level9"]["next"]["level10"]["next"]["level11"]["next"]
+                                ["level12"]["next"]["level13"]["next"]["level14"]["next"]["level15"]["next"]
+                                ["level16"]["next"]["level17"]["next"]["level18"]["next"]["level19"]["next"]
+                                ["final"]["message"].get<std::string>();
         benchmark::DoNotOptimize(final_message);
     }
 }
