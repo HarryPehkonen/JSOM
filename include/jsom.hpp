@@ -337,6 +337,10 @@ public:
         : allocator_(std::move(alloc)) {
         root_node_ = static_cast<PathNode*>(allocator_->allocate(sizeof(PathNode)));
         new (root_node_) PathNode(nullptr, "");
+        
+        // Pre-reserve value buffer to avoid reallocations for most common values
+        // 64 characters covers most strings, numbers, and all literals
+        value_buffer_.reserve(64);
     }
 
     ~StreamingParser() {
@@ -400,16 +404,16 @@ private:
         if (c == '"') {
             // Start of string
             state_ = ParseState::InString;
-            value_buffer_.clear();
+            prepare_value_buffer_for_string();
         } else if (c == 't' || c == 'f' || c == 'n') {
             // Start of literal (true, false, null)
             state_ = ParseState::InLiteral;
-            value_buffer_.clear();
+            reset_value_buffer();
             value_buffer_.push_back(c);
         } else if (c == '-' || (c >= '0' && c <= '9')) {
             // Start of number
             state_ = ParseState::InNumber;
-            value_buffer_.clear();
+            reset_value_buffer();
             value_buffer_.push_back(c);
         } else if (c == '{') {
             // Start of object
@@ -443,7 +447,7 @@ private:
             // Invalid literal - too long or invalid prefix
             emit_error("Invalid literal");
             state_ = ParseState::Start;
-            value_buffer_.clear();
+            reset_value_buffer();
         }
     }
 
@@ -481,14 +485,14 @@ private:
         emit_value(type, value_buffer_);
         update_object_state_after_value();
         return_to_container_or_start();
-        value_buffer_.clear();
+        reset_value_buffer();
     }
 
     void complete_number_value() {
         emit_value(JsonType::Number, value_buffer_);
         update_object_state_after_value();
         return_to_container_or_start();
-        value_buffer_.clear();
+        reset_value_buffer();
     }
 
     // NOLINTNEXTLINE(readability-identifier-length)
@@ -505,7 +509,7 @@ private:
             // Control characters must be escaped in JSON strings
             emit_error("Unescaped control character in string");
             state_ = ParseState::Error;
-            value_buffer_.clear();
+            reset_value_buffer();
             in_escape_ = false;
         } else {
             // Regular character
@@ -526,7 +530,7 @@ private:
             // Invalid escape sequence
             emit_error("Invalid escape sequence");
             state_ = ParseState::Error;
-            value_buffer_.clear();
+            reset_value_buffer();
             in_escape_ = false;
             return;
         }
@@ -621,7 +625,7 @@ private:
         }
 
         return_to_container_or_start();
-        value_buffer_.clear();
+        reset_value_buffer();
         in_escape_ = false;
     }
 
@@ -662,6 +666,23 @@ private:
     // Fast escape check - most keys don't need escaping
     [[nodiscard]] static auto needs_escaping(const std::string& component) -> bool {
         return component.find('~') != std::string::npos || component.find('/') != std::string::npos;
+    }
+    
+    // Efficient buffer reset that preserves capacity
+    void reset_value_buffer() {
+        // Use resize(0) instead of clear() to preserve allocated capacity
+        // This avoids reallocations for subsequent values of similar size
+        value_buffer_.resize(0);
+    }
+    
+    // Context-aware buffer preparation for different value types
+    void prepare_value_buffer_for_string() {
+        reset_value_buffer();
+        // Strings are often longer than numbers/literals, so reserve more space
+        // if the current capacity is small
+        if (value_buffer_.capacity() < 128) {
+            value_buffer_.reserve(128);
+        }
     }
 
 
@@ -1052,7 +1073,7 @@ public:
     void reset() {
         state_ = ParseState::Start;
         context_stack_.clear();
-        value_buffer_.clear();
+        reset_value_buffer();
         position_ = 0;
         in_escape_ = false;
         unicode_buffer_.clear();
