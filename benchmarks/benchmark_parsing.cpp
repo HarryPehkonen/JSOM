@@ -79,6 +79,17 @@ static void BM_JSOM_ParseObjectHeavy(benchmark::State& state) {
 }
 BENCHMARK(BM_JSOM_ParseObjectHeavy);
 
+// Number-heavy JSON parsing
+static void BM_JSOM_ParseNumberHeavy(benchmark::State& state) {
+    const std::string json = benchmark_utils::get_number_heavy_json();
+    for (auto _ : state) {
+        auto doc = jsom::parse_document(json);
+        benchmark::DoNotOptimize(doc);
+    }
+    state.SetBytesProcessed(state.iterations() * json.size());
+}
+BENCHMARK(BM_JSOM_ParseNumberHeavy);
+
 // nlohmann::json Parsing Benchmarks
 
 static void BM_Nlohmann_ParseSmall(benchmark::State& state) {
@@ -167,6 +178,16 @@ static void BM_JSOM_ParseInvalid(benchmark::State& state) {
     }
 }
 BENCHMARK(BM_JSOM_ParseInvalid);
+
+static void BM_Nlohmann_ParseNumberHeavy(benchmark::State& state) {
+    const std::string json = benchmark_utils::get_number_heavy_json();
+    for (auto _ : state) {
+        auto doc = nlohmann::json::parse(json);
+        benchmark::DoNotOptimize(doc);
+    }
+    state.SetBytesProcessed(state.iterations() * json.size());
+}
+BENCHMARK(BM_Nlohmann_ParseNumberHeavy);
 
 static void BM_Nlohmann_ParseInvalid(benchmark::State& state) {
     const std::string invalid_json = R"({"invalid": json, "missing": "quotes})";

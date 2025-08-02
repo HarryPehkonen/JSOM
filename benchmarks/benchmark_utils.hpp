@@ -266,4 +266,36 @@ inline auto get_deep_nested_json() -> std::string {
     return data;
 }
 
+// Generate number-heavy JSON for profiling numeric parsing
+inline auto generate_number_heavy_json() -> std::string {
+    std::ostringstream json;
+    json << R"({"metrics": [)";
+    
+    for (int i = 0; i < 1000; ++i) {
+        if (i > 0) json << ",";
+        json << R"(
+    {
+      "timestamp": )" << (1640995200 + i * 3600) << R"(,
+      "cpu_usage": )" << (0.1 + (i % 100) * 0.009) << R"(,
+      "memory_usage": )" << (500.5 + i * 1.2) << R"(,
+      "disk_io": )" << (1024 + i * 17) << R"(,
+      "network_bytes": )" << (8192 * i) << R"(,
+      "temperature": )" << (45.5 + (i % 20) * 2.1) << R"(,
+      "voltage": )" << (12.0 + (i % 5) * 0.01) << R"(,
+      "frequency": )" << (2400 + (i % 800)) << R"(,
+      "latency": )" << (0.001 + i * 0.0001) << R"(,
+      "throughput": )" << (1000.0 - i * 0.5) << R"(
+    })";
+    }
+    
+    json << R"(]})";
+    return json.str();
+}
+
+// Get number-heavy JSON data
+inline auto get_number_heavy_json() -> std::string {
+    static std::string data = generate_number_heavy_json();
+    return data;
+}
+
 } // namespace benchmark_utils
