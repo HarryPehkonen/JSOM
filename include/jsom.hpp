@@ -152,6 +152,7 @@ enum class ParseState : std::uint8_t {
     InUnicodeEscape
 };
 
+
 struct ParseEvents {
     std::function<void(const JsonEvent&)> on_value;
     std::function<void(const std::string&)> on_enter_object;
@@ -658,20 +659,53 @@ private:
         return escaped;
     }
 
+    // Fast escape check - most keys don't need escaping
+    [[nodiscard]] static auto needs_escaping(const std::string& component) -> bool {
+        return component.find('~') != std::string::npos || component.find('/') != std::string::npos;
+    }
+
+
     [[nodiscard]] auto generate_current_json_pointer() const -> std::string {
-        // Check if cache is valid (context stack size, current key, and array indices haven't
-        // changed)
-        if (is_cache_valid()) {
-            return cached_json_pointer_;
+        // Build path from context stack, incorporating array indices dynamically
+        std::string result;
+        
+        // Build path from context stack - this gives us the correct array index handling
+        for (std::size_t i = 0; i < context_stack_.size(); ++i) {
+            const auto& context = context_stack_[i];
+            
+            if (!context.key.empty()) {
+                // This context represents a value accessed by object key
+                result += '/';
+                if (needs_escaping(context.key)) {
+                    result += escape_json_pointer_component(context.key);
+                } else {
+                    result += context.key;
+                }
+            }
+            
+            // If this context is an array element (not the root array), add the index
+            if (i > 0 && context_stack_[i - 1].type == ContainerType::Array) {
+                result += '/';
+                result += std::to_string(context_stack_[i - 1].array_index);
+            }
         }
-
-        // Cache is invalid, rebuild the path
-        std::string result = build_json_pointer_from_context();
-
-        // Update cache
-        cached_json_pointer_ = result;
-        update_cache_state();
-
+        
+        // Add current key if we're parsing a value in an object
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Object && !current_key_.empty()) {
+            result += '/';
+            if (needs_escaping(current_key_)) {
+                result += escape_json_pointer_component(current_key_);
+            } else {
+                result += current_key_;
+            }
+        }
+        
+        // If we're parsing a value in an array, add the current array index
+        if (!context_stack_.empty() && context_stack_.back().type == ContainerType::Array) {
+            result += '/';
+            result += std::to_string(context_stack_.back().array_index);
+        }
+        
         return result;
     }
 
@@ -794,7 +828,7 @@ private:
 
         context_stack_.push_back(context);
 
-        // Invalidate JSON pointer cache due to context change
+        // Invalidate JSON pointer cache due to context change (still needed for compatibility)
         cached_json_pointer_.clear();
 
         // Emit on_enter_object event
@@ -819,7 +853,7 @@ private:
 
         context_stack_.push_back(context);
 
-        // Invalidate JSON pointer cache due to context change
+        // Invalidate JSON pointer cache due to context change (still needed for compatibility)
         cached_json_pointer_.clear();
 
         // Emit on_enter_array event
