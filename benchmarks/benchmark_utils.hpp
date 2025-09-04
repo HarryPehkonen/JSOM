@@ -1,301 +1,242 @@
 #pragma once
 
 #include <string>
-#include <memory>
-#include <filesystem>
-#include <fstream>
 #include <sstream>
 
 namespace benchmark_utils {
 
-// Get the path to benchmark data files
-inline auto get_data_path() -> std::string {
-    return "benchmarks/data/";
-}
-
-// Read a JSON file as string
-inline auto read_json_file(const std::string& filename) -> std::string {
-    std::string filepath = get_data_path() + filename;
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        // If file doesn't exist, generate it
-        return "";
-    }
-    
-    std::ostringstream content;
-    content << file.rdbuf();
-    return content.str();
-}
-
-// Generate small JSON (~1KB) - typical tweet/message
-inline auto generate_small_json() -> std::string {
+inline std::string get_small_json() {
     return R"({
-  "id": 1234567890,
-  "created_at": "2024-01-15T10:30:00Z",
-  "user": {
-    "id": 12345,
-    "username": "benchmark_user",
-    "display_name": "Benchmark User",
-    "verified": true,
-    "followers_count": 15420,
-    "following_count": 892
-  },
-  "text": "This is a sample tweet for benchmarking JSON parsing performance. It contains various data types including numbers, strings, booleans, and nested objects. #benchmark #json #performance",
-  "metrics": {
-    "retweet_count": 42,
-    "like_count": 156,
-    "quote_count": 12,
-    "reply_count": 8
-  },
-  "entities": {
-    "hashtags": [
-      {"text": "benchmark", "start": 147, "end": 157},
-      {"text": "json", "start": 158, "end": 163},
-      {"text": "performance", "start": 164, "end": 176}
-    ],
-    "urls": [],
-    "mentions": []
-  },
-  "context_annotations": [
-    {
-      "domain": {
-        "id": "65",
-        "name": "Technology",
-        "description": "Technology and computing"
-      },
-      "entity": {
-        "id": "781974596752842752",
-        "name": "JSON",
-        "description": "JavaScript Object Notation"
-      }
-    }
-  ],
-  "public_metrics": {
-    "retweet_count": 42,
-    "like_count": 156,
-    "quote_count": 12,
-    "reply_count": 8
-  },
-  "lang": "en",
-  "possibly_sensitive": false
-})";
+        "id": 1234567890,
+        "text": "This is a typical social media post with some #hashtags and @mentions",
+        "created_at": "2024-01-15T10:30:00Z",
+        "user": {
+            "id": 9876543210,
+            "username": "testuser",
+            "display_name": "Test User",
+            "verified": true,
+            "followers_count": 15420,
+            "profile": {
+                "bio": "Software developer and JSON enthusiast",
+                "location": "San Francisco, CA",
+                "website": "https://example.com"
+            }
+        },
+        "metrics": {
+            "retweets": 42,
+            "likes": 156,
+            "replies": 23,
+            "engagement_rate": 0.127
+        },
+        "entities": {
+            "hashtags": ["json", "performance", "parsing"],
+            "urls": ["https://example.com/article"],
+            "mentions": ["testuser2", "developer"]
+        },
+        "metadata": {
+            "source": "web",
+            "lang": "en",
+            "sensitive": false
+        }
+    })";
 }
 
-// Generate medium JSON (~50KB) - typical API response
-inline auto generate_medium_json() -> std::string {
-    std::ostringstream json;
-    json << R"({
-  "status": "success",
-  "pagination": {
-    "page": 1,
-    "per_page": 100,
-    "total": 1000,
-    "total_pages": 10
-  },
-  "data": [)";
+inline std::string get_medium_json() {
+    std::ostringstream oss;
+    oss << R"({
+        "status": "success",
+        "pagination": {
+            "page": 1,
+            "per_page": 100,
+            "total": 5000,
+            "total_pages": 50
+        },
+        "data": [)";
     
     for (int i = 0; i < 100; ++i) {
-        if (i > 0) json << ",";
-        json << R"(
-    {
-      "id": )" << (1000 + i) << R"(,
-      "name": "Product )" << i << R"(",
-      "description": "This is a detailed description of product )" << i << R"( which includes various features and specifications that make it unique in the market.",
-      "category": {
-        "id": )" << (i % 10 + 1) << R"(,
-        "name": "Category )" << (i % 10) << R"(",
-        "slug": "category-)" << (i % 10) << R"("
-      },
-      "price": {
-        "amount": )" << (99.99 + i * 10) << R"(,
-        "currency": "USD",
-        "formatted": "$)" << (99.99 + i * 10) << R"("
-      },
-      "inventory": {
-        "in_stock": )" << (i % 3 == 0 ? "true" : "false") << R"(,
-        "quantity": )" << (i * 3 + 10) << R"(,
-        "reserved": )" << (i % 5) << R"(
-      },
-      "attributes": {
-        "color": ")" << (i % 2 == 0 ? "blue" : "red") << R"(",
-        "size": ")" << (i % 3 == 0 ? "large" : (i % 3 == 1 ? "medium" : "small")) << R"(",
-        "weight": )" << (1.5 + i * 0.1) << R"(,
-        "dimensions": {
-          "length": )" << (10 + i % 5) << R"(,
-          "width": )" << (8 + i % 3) << R"(,
-          "height": )" << (5 + i % 2) << R"(
-        }
-      },
-      "tags": [)" << (i % 2 == 0 ? "\"popular\", \"featured\"" : "\"new\", \"limited\"") << R"(],
-      "created_at": "2024-01-)" << (1 + i % 28) << R"(T)" << (i % 24) << R"(:)" << (i % 60) << R"(:00Z",
-      "updated_at": "2024-01-)" << (1 + i % 28) << R"(T)" << ((i + 1) % 24) << R"(:)" << ((i + 30) % 60) << R"(:00Z"
-    })";
+        if (i > 0) oss << ",";
+        oss << R"(
+            {
+                "id": )" << (i + 1000) << R"(,
+                "sku": "PROD-)" << (i + 1000) << R"(",
+                "name": "Product )" << i << R"(",
+                "category": "electronics",
+                "price": {
+                    "amount": )" << (99.99 + i * 0.50) << R"(,
+                    "currency": "USD",
+                    "tax_rate": 0.08
+                },
+                "inventory": {
+                    "quantity": )" << (100 - i) << R"(,
+                    "reserved": )" << (i % 10) << R"(,
+                    "available": )" << (100 - i - (i % 10)) << R"(
+                },
+                "dimensions": {
+                    "width": )" << (10.5 + i * 0.1) << R"(,
+                    "height": )" << (5.2 + i * 0.05) << R"(,
+                    "depth": )" << (2.8 + i * 0.02) << R"(,
+                    "weight": )" << (1.5 + i * 0.01) << R"(
+                },
+                "ratings": {
+                    "average": )" << (3.5 + (i % 20) * 0.1) << R"(,
+                    "count": )" << (50 + i * 3) << R"(
+                },
+                "active": )" << (i % 2 == 0 ? "true" : "false") << R"(,
+                "created_timestamp": )" << (1640995200 + i * 3600) << R"(
+            })";
     }
     
-    json << R"(
-  ]
-})";
+    oss << R"(
+        ],
+        "meta": {
+            "request_id": "req_123456789",
+            "processing_time_ms": 45.67,
+            "cache_hit": true
+        }
+    })";
     
-    return json.str();
+    return oss.str();
 }
 
-// Generate large JSON (~2MB) - data export style
-inline auto generate_large_json() -> std::string {
-    std::ostringstream json;
-    json << R"({
-  "export_info": {
-    "generated_at": "2024-01-15T10:30:00Z",
-    "format_version": "1.0",
-    "total_records": 5000,
-    "source": "benchmark_data_generator"
-  },
-  "records": [)";
+inline std::string get_large_json() {
+    std::ostringstream oss;
+    oss << R"({
+        "export_info": {
+            "timestamp": 1641024000,
+            "record_count": 5000,
+            "version": "2.1"
+        },
+        "users": [)";
     
     for (int i = 0; i < 5000; ++i) {
-        if (i > 0) json << ",";
-        json << R"(
-    {
-      "record_id": )" << i << R"(,
-      "timestamp": "2024-01-)" << (1 + i % 28) << R"(T)" << (i % 24) << R"(:)" << (i % 60) << R"(:)" << ((i * 17) % 60) << R"(Z",
-      "user_data": {
-        "user_id": )" << (10000 + i) << R"(,
-        "username": "user_)" << i << R"(",
-        "email": "user)" << i << R"(@example.com",
-        "profile": {
-          "first_name": "User",
-          "last_name": ")" << i << R"(",
-          "age": )" << (18 + i % 60) << R"(,
-          "location": {
-            "country": ")" << (i % 5 == 0 ? "US" : (i % 5 == 1 ? "UK" : (i % 5 == 2 ? "CA" : (i % 5 == 3 ? "AU" : "DE")))) << R"(",
-            "city": "City )" << (i % 100) << R"(",
-            "coordinates": {
-              "lat": )" << (40.0 + (i % 180) - 90) << R"(,
-              "lng": )" << (-120.0 + (i % 360) - 180) << R"(
-            }
-          }
-        }
-      },
-      "activity": {
-        "login_count": )" << (i % 1000) << R"(,
-        "last_login": "2024-01-)" << (1 + i % 28) << R"(T)" << ((i + 12) % 24) << R"(:)" << ((i + 30) % 60) << R"(:00Z",
-        "session_duration": )" << (300 + i % 3600) << R"(,
-        "pages_visited": [)" << ((i % 10) + 1);
-        
-        for (int j = 1; j < (i % 5) + 1; ++j) {
-            json << ", " << ((i + j) % 50 + 1);
-        }
-        
-        json << R"(],
-        "actions_performed": )" << (i % 50) << R"(
-      },
-      "preferences": {
-        "theme": ")" << (i % 2 == 0 ? "dark" : "light") << R"(",
-        "language": ")" << (i % 3 == 0 ? "en" : (i % 3 == 1 ? "es" : "fr")) << R"(",
-        "notifications": {
-          "email": )" << (i % 3 != 0 ? "true" : "false") << R"(,
-          "push": )" << (i % 2 == 0 ? "true" : "false") << R"(,
-          "sms": )" << (i % 5 == 0 ? "true" : "false") << R"(
-        },
-        "privacy": {
-          "profile_public": )" << (i % 4 != 0 ? "true" : "false") << R"(,
-          "activity_tracking": )" << (i % 3 == 0 ? "true" : "false") << R"(
-        }
-      },
-      "metrics": {
-        "score": )" << (i % 100) << R"(,
-        "level": )" << (1 + i % 20) << R"(,
-        "achievements": )" << (i % 15) << R"(,
-        "points": )" << (i * 47 % 10000) << R"(
-      }
-    })";
+        if (i > 0) oss << ",";
+        oss << R"(
+            {
+                "id": )" << (1000000 + i) << R"(,
+                "username": "user_)" << i << R"(",
+                "email": "user)" << i << R"(@example.com",
+                "profile": {
+                    "first_name": "User",
+                    "last_name": ")" << i << R"(",
+                    "age": )" << (18 + i % 50) << R"(,
+                    "registration_date": ")" << (2020 + i % 4) << R"(-01-01",
+                    "last_login_timestamp": )" << (1640995200 + i * 1800) << R"(,
+                    "account_balance": )" << (100.0 + i * 1.5) << R"(,
+                    "credit_score": )" << (600 + i % 200) << R"(,
+                    "location": {
+                        "country": "US",
+                        "state": "CA",
+                        "city": "San Francisco",
+                        "coordinates": {
+                            "latitude": )" << (37.7749 + (i % 100) * 0.001) << R"(,
+                            "longitude": )" << (-122.4194 + (i % 100) * 0.001) << R"(,
+                            "altitude": )" << (50 + i % 100) << R"(
+                        }
+                    }
+                },
+                "activity": {
+                    "posts_count": )" << (i % 500) << R"(,
+                    "followers_count": )" << (i % 10000) << R"(,
+                    "following_count": )" << ((i + 50) % 1000) << R"(,
+                    "likes_given": )" << (i * 5) << R"(,
+                    "likes_received": )" << (i * 3) << R"(
+                },
+                "preferences": {
+                    "notifications": )" << (i % 2 == 0 ? "true" : "false") << R"(,
+                    "privacy_level": )" << (i % 3) << R"(,
+                    "theme": ")" << (i % 2 == 0 ? "dark" : "light") << R"("
+                },
+                "subscription": {
+                    "plan": ")" << (i % 3 == 0 ? "premium" : "basic") << R"(",
+                    "price": )" << (i % 3 == 0 ? 9.99 : 0.0) << R"(,
+                    "renewal_date": "2024-)" << ((i % 12) + 1) << R"(-01"
+                }
+            })";
     }
     
-    json << R"(
-  ]
-})";
+    oss << R"(
+        ]
+    })";
     
-    return json.str();
+    return oss.str();
 }
 
-// Generate deeply nested JSON
-inline auto generate_deep_nested_json() -> std::string {
-    std::ostringstream json;
+inline std::string get_deep_nested_json() {
+    std::ostringstream oss;
+    oss << "{";
     
-    // Create a deeply nested structure (20 levels deep)
-    json << R"({"level0": {"data": "value0", "next": )";
-    for (int i = 1; i < 20; ++i) {
-        json << R"({"level)" << i << R"(": {"data": "value)" << i << R"(", "index": )" << i << R"(, "next": )";
+    for (int level = 0; level < 20; ++level) {
+        oss << R"("level)" << level << R"(": {
+            "depth": )" << level << R"(,
+            "name": "Level )" << level << R"(",
+            "next": {)";
     }
     
-    json << R"({"final": {"message": "This is the deepest level", "depth": 20, "values": [)";
-    for (int i = 0; i < 50; ++i) {
-        if (i > 0) json << ", ";
-        json << i;
-    }
-    json << R"(]}})"; 
+    // Final level with array
+    oss << R"("final": {
+            "depth": 20,
+            "values": [1, 2, 3, 4, 5],
+            "coordinates": [
+                {"x": 10.5, "y": 20.7, "z": 30.9},
+                {"x": 11.5, "y": 21.7, "z": 31.9},
+                {"x": 12.5, "y": 22.7, "z": 32.9}
+            ]
+        })";
     
     // Close all the nested objects
-    for (int i = 0; i < 20; ++i) {
-        json << "}}";
+    for (int level = 0; level < 21; ++level) {
+        oss << "}";
     }
     
-    return json.str();
+    return oss.str();
 }
 
-// Get small JSON data
-inline auto get_small_json() -> std::string {
-    static std::string data = generate_small_json();
-    return data;
-}
-
-// Get medium JSON data
-inline auto get_medium_json() -> std::string {
-    static std::string data = generate_medium_json();
-    return data;
-}
-
-// Get large JSON data
-inline auto get_large_json() -> std::string {
-    static std::string data = generate_large_json();
-    return data;
-}
-
-// Get deep nested JSON data
-inline auto get_deep_nested_json() -> std::string {
-    static std::string data = generate_deep_nested_json();
-    return data;
-}
-
-// Generate number-heavy JSON for profiling numeric parsing
-inline auto generate_number_heavy_json() -> std::string {
-    std::ostringstream json;
-    json << R"({"metrics": [)";
+inline std::string get_number_heavy_json() {
+    std::ostringstream oss;
+    oss << R"({
+        "metadata": {
+            "dataset": "metrics_export",
+            "generated_at": 1641024000,
+            "record_count": 1000,
+            "format_version": 1.2
+        },
+        "metrics": [)";
     
     for (int i = 0; i < 1000; ++i) {
-        if (i > 0) json << ",";
-        json << R"(
-    {
-      "timestamp": )" << (1640995200 + i * 3600) << R"(,
-      "cpu_usage": )" << (0.1 + (i % 100) * 0.009) << R"(,
-      "memory_usage": )" << (500.5 + i * 1.2) << R"(,
-      "disk_io": )" << (1024 + i * 17) << R"(,
-      "network_bytes": )" << (8192 * i) << R"(,
-      "temperature": )" << (45.5 + (i % 20) * 2.1) << R"(,
-      "voltage": )" << (12.0 + (i % 5) * 0.01) << R"(,
-      "frequency": )" << (2400 + (i % 800)) << R"(,
-      "latency": )" << (0.001 + i * 0.0001) << R"(,
-      "throughput": )" << (1000.0 - i * 0.5) << R"(
-    })";
+        if (i > 0) oss << ",";
+        oss << R"(
+            {
+                "timestamp": )" << (1640995200 + i * 60) << R"(,
+                "cpu_usage": )" << (0.15 + (i % 85) * 0.01) << R"(,
+                "memory_usage": )" << (0.45 + (i % 50) * 0.01) << R"(,
+                "disk_io_read": )" << (1000 + i * 10) << R"(,
+                "disk_io_write": )" << (500 + i * 5) << R"(,
+                "network_in": )" << (1024 + i * 13) << R"(,
+                "network_out": )" << (2048 + i * 7) << R"(,
+                "requests_per_second": )" << (100 + i % 200) << R"(,
+                "response_time_ms": )" << (50.5 + (i % 100) * 0.5) << R"(,
+                "error_rate": )" << (0.001 + (i % 50) * 0.0001) << R"(,
+                "temperature": )" << (65.2 + (i % 20) * 0.1) << R"(,
+                "power_consumption": )" << (150.0 + (i % 30) * 1.5) << R"(,
+                "scientific_value": )" << (1.23e10 + i * 1e6) << R"(,
+                "negative_metric": )" << (-456.789 - i * 0.1) << R"(
+            })";
     }
     
-    json << R"(]})";
-    return json.str();
-}
-
-// Get number-heavy JSON data
-inline auto get_number_heavy_json() -> std::string {
-    static std::string data = generate_number_heavy_json();
-    return data;
+    oss << R"(
+        ],
+        "summary": {
+            "total_samples": 1000,
+            "avg_cpu": 0.567,
+            "avg_memory": 0.723,
+            "max_response_time": 99.5,
+            "min_response_time": 50.5,
+            "p95_response_time": 89.2,
+            "p99_response_time": 95.8
+        }
+    })";
+    
+    return oss.str();
 }
 
 } // namespace benchmark_utils

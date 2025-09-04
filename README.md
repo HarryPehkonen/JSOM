@@ -1,383 +1,277 @@
-# JSOM - JSON Streaming Object Model
+# JSOM - High-Performance JSON Parser
 
-A fast, header-only C++17 streaming JSON parser with complete JSON Pointer (RFC 6901) support and event-driven architecture.
+A fast, modern C++17 JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting.
 
 ## Features
 
-- **Header-only library** - Single `jsom.hpp` include, no dependencies
-- **Streaming parser** - Character-by-character processing with minimal memory footprint  
-- **JSON Pointer tracking** - RFC 6901 compliant path generation for all values and errors
-- **Event-driven architecture** - Real-time callbacks during parsing
-- **Modern C++17** - Clean, type-safe API with proper RAII and smart pointers
-- **Comprehensive error handling** - Detailed error messages with JSON Pointer context
-- **Full JSON support** - Strings, numbers, booleans, null, objects, arrays, and nested structures
-- **Character-level precision** - Accurate position tracking for debugging
+- **Lazy number parsing** - 2x performance improvement for number-heavy JSON
+- **RFC 6901 JSON Pointers** - Full standard compliance with path caching optimization
+- **Intelligent formatting** - Multiple presets for different use cases (compact, pretty, config, API, debug)
+- **Memory efficient** - Optimized allocation patterns, ~50% reduction vs naive double-buffering
+- **Modern C++17** - Safe, clean implementation using std::variant and RAII
+- **Zero dependencies** - Self-contained with optional benchmarking against nlohmann/json
+- **Comprehensive CLI** - Full-featured command-line tool for JSON operations
 
-## Quick Start
+## Performance
 
-### Basic Usage
+JSOM achieves significant performance improvements through:
+- **Lazy number evaluation** - Numbers parsed on-demand, preserving format
+- **Direct construction parsing** - Eliminates intermediate allocations (22% allocation overhead eliminated)
+- **Path prefix caching** - Intelligent caching for related JSON Pointer operations
+- **Move semantics** - Optimal C++17 move operations throughout
 
-```cpp
-#include "jsom.hpp"
-#include <iostream>
-
-int main() {
-    jsom::StreamingParser parser;
-    
-    // Set up event callbacks
-    jsom::ParseEvents events;
-    events.on_value = [](const jsom::JsonValue& value) {
-        std::cout << "Found " << value.raw_value() 
-                  << " at path: " << value.path() << std::endl;
-    };
-    events.on_error = [](const jsom::ParseError& error) {
-        std::cout << "Error: " << error.message 
-                  << " at " << error.json_pointer << std::endl;
-    };
-    
-    parser.set_events(events);
-    
-    std::string json = R"({
-        "name": "John Doe",
-        "age": 30,
-        "hobbies": ["reading", "coding"],
-        "address": {
-            "city": "New York",
-            "zip": "10001"
-        }
-    })";
-    
-    parser.parse_string(json);
-    parser.end_input();
-    
-    return 0;
-}
-```
-
-**Output:**
-```
-Found John Doe at path: /name
-Found 30 at path: /age
-Found reading at path: /hobbies/0
-Found coding at path: /hobbies/1
-Found New York at path: /address/city
-Found 10001 at path: /address/zip
-```
-
-### CMake Integration
-
-```cmake
-# Include JSOM in your project
-add_executable(my_app main.cpp)
-target_include_directories(my_app PRIVATE path/to/jsom/include)
-target_compile_features(my_app PRIVATE cxx_std_17)
-```
-
-## Architecture
-
-### StreamingParser
-
-The core parser processes JSON character-by-character using a state machine approach:
-
-```cpp
-jsom::StreamingParser parser;
-
-// Configure with custom allocator (optional)
-auto arena = std::make_unique<jsom::ArenaAllocator>(4096);
-jsom::StreamingParser parser(std::move(arena));
-
-// Parse incrementally
-for (char c : json_string) {
-    parser.feed_character(c);
-}
-parser.end_input();
-
-// Or parse all at once
-parser.parse_string(json_string);
-parser.end_input();
-
-// Reset for reuse
-parser.reset();
-```
-
-### JsonValue
-
-Represents parsed JSON values with automatic type detection:
-
-```cpp
-// Access value properties
-JsonValue value = /* from callback */;
-auto type = value.type();           // JsonType enum
-auto raw = value.raw_value();       // Raw string representation
-auto path = value.path();           // JSON Pointer path
-
-// Type-specific accessors
-if (type == jsom::JsonType::String) {
-    auto str = value.as_string();   // Unescaped string
-}
-if (type == jsom::JsonType::Number) {
-    auto num = value.as_double();   // Parsed as double
-    auto int_val = value.as_int();  // Parsed as int
-}
-if (type == jsom::JsonType::Boolean) {
-    auto flag = value.as_bool();    // true/false
-}
-```
-
-### ParseEvents
-
-Event-driven callbacks for real-time processing:
-
-```cpp
-jsom::ParseEvents events;
-
-// Called for each parsed value (strings, numbers, booleans, null)
-events.on_value = [](const jsom::JsonValue& value) {
-    // Process value with automatic JSON Pointer path
-};
-
-// Called when entering objects (with key context)
-events.on_enter_object = [](const std::string& key) {
-    // Key is empty for root object
-};
-
-// Called when entering arrays
-events.on_enter_array = []() {
-    // Array entered
-};
-
-// Called when exiting any container (object or array)
-events.on_exit_container = []() {
-    // Container closed
-};
-
-// Called for parse errors with precise location
-events.on_error = [](const jsom::ParseError& error) {
-    // error.position - character position
-    // error.message - human-readable description  
-    // error.json_pointer - path context where error occurred
-};
-```
-
-## JSON Pointer Support
-
-JSOM provides full RFC 6901 JSON Pointer support with automatic path generation:
-
-### Path Examples
-
-```cpp
-// JSON: {"users": [{"name": "Alice"}, {"name": "Bob"}]}
-// Paths generated:
-// /users/0/name → "Alice"
-// /users/1/name → "Bob"
-
-// JSON: {"key~with/special": "value"}  
-// Path: /key~0with~1special → "value"
-// (~ escaped to ~0, / escaped to ~1)
-```
-
-### Error Context
-
-Parse errors include JSON Pointer context for precise debugging:
-
-```cpp
-// Invalid JSON: {"name": invalid_value}
-// Error: "Unexpected character in start state" at /name
-```
-
-## Supported JSON Features
-
-### ✅ Complete Implementation
-
-- **Strings** - Full escape sequence support (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`)
-- **Numbers** - Integers, floats, scientific notation (`123`, `-45.67`, `1.23e-4`)
-- **Literals** - `true`, `false`, `null`
-- **Objects** - Key-value pairs with string keys (`{"key": "value"}`)
-- **Arrays** - Ordered lists (`[1, "two", true, null]`)
-- **Nested structures** - Arbitrary nesting depth
-- **Unicode** - Full UTF-8 support with `\uXXXX` escape sequences
-- **Whitespace** - Proper handling of spaces, tabs, newlines, carriage returns
-
-### Error Handling
-
-- **Syntax validation** - Malformed JSON detection
-- **Type checking** - Object keys must be strings
-- **Container matching** - Proper `{}` and `[]` pairing
-- **String validation** - Proper quote and escape handling
-- **Graceful recovery** - Continues parsing after recoverable errors
-
-## Memory Management
-
-JSOM offers flexible memory management strategies:
-
-### Standard Allocator (Default)
-```cpp
-// Uses std::malloc/free
-jsom::StreamingParser parser; // Default constructor
-```
-
-### Arena Allocator (High Performance)
-```cpp
-// Pre-allocates blocks for faster allocation
-auto arena = std::make_unique<jsom::ArenaAllocator>(4096); // 4KB blocks
-jsom::StreamingParser parser(std::move(arena));
-```
+Benchmark results show 2.01x performance improvement over baseline with full functionality preserved.
 
 ## Building
 
 ### Requirements
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
-- CMake 3.10+ (for building tests)
+- CMake 3.10+
 
-### Build Commands
+### Quick Build
 ```bash
-# Configure and build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-
-# Run tests
-cd build && ctest
-
-# Or run directly
-cd build && ./jsom_tests
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
 ```
 
-### Build Targets
+### Build Options
 ```bash
-# Format code
-cmake --build build --target format
+# Release build with optimizations
+cmake -DCMAKE_BUILD_TYPE=Release ..
 
-# Run static analysis
-cmake --build build --target tidy
+# Build with benchmarks enabled (default)
+cmake -DBENCHMARKS=ON ..
 
-# Run specific test suite
-cd build && ./jsom_tests --gtest_filter="StringTest.*"
+# Run all tests
+make run_tests
+
+# Run benchmarks
+make run_benchmarks
 ```
 
-## Performance Characteristics
+## Usage
 
-- **Memory efficient** - Minimal allocation during parsing
-- **Streaming** - Process JSON as it arrives, no buffering required
-- **Fast** - Character-by-character state machine with optimized transitions
-- **Scalable** - Handles large JSON documents with constant memory usage
+### Command Line Tool
+```bash
+# Format JSON with different presets
+jsom format --preset=pretty data.json
+jsom format --preset=compact data.json
+jsom format --preset=config settings.json
+jsom format --indent=4 --max-width=80 data.json
 
-## API Reference
+# Validate JSON files
+jsom validate file1.json file2.json
 
-### Core Types
+# JSON Pointer operations (RFC 6901)
+jsom pointer get "/users/0/name" data.json
+jsom pointer exists "/config/database/host" config.json
+jsom pointer list --max-depth=3 data.json
+jsom pointer find "/users/*/email" data.json
+jsom pointer bulk-get "/users/0/name,/users/0/age" data.json
 
+# Quick performance benchmarking (simple timing)
+jsom benchmark large.json
+```
+
+### C++ API
 ```cpp
-namespace jsom {
-    // Main parser class
-    class StreamingParser;
+#include <jsom/jsom.hpp>
+using namespace jsom;
+using namespace jsom::literals;  // For _jsom literal
+
+// Parse JSON (traditional way)
+auto doc = parse_document(R"({"name": "John", "age": 30, "scores": [85, 92]})");
+
+// Parse JSON with _jsom literal (cleaner syntax)
+auto config = R"({
+    "server": "localhost",
+    "port": 8080,
+    "features": ["auth", "logging"]
+})"_jsom;
+
+// Type-safe access
+if (doc.is_object()) {
+    std::string name = doc["name"].as<std::string>();
+    int age = doc["age"].as<int>();
     
-    // Value representation
-    class JsonValue;
-    enum class JsonType { Null, Boolean, Number, String, Object, Array };
-    
-    // Events and errors
-    struct ParseEvents;
-    struct ParseError;
-    
-    // Memory management
-    class IAllocator;
-    class StandardAllocator;
-    class ArenaAllocator;
-    
-    // Path tracking (legacy support)
-    struct PathNode;
+    // Array access
+    if (doc["scores"].is_array()) {
+        int first_score = doc["scores"][0].as<int>();
+    }
+}
+
+// JSON Pointer operations
+auto value = doc.at("/users/0/name");
+bool exists = doc.exists("/config/database/host");
+auto paths = doc.list_paths();
+
+// Formatting with options
+std::string compact = doc.to_json(FormatPresets::Compact);
+std::string pretty = doc.to_json(FormatPresets::Pretty);
+
+JsonFormatOptions custom;
+custom.indent_size = 4;
+custom.max_line_width = 80;
+std::string formatted = doc.to_json(custom);
+
+// Create documents with _jsom literal
+auto user = R"({"name": "Alice", "age": 25})"_jsom;
+auto numbers = R"([1, 2, 3, 4, 5])"_jsom;
+auto simple = R"("hello world")"_jsom;
+
+// Unicode escape handling
+auto default_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})");
+// Preserves as literal: "\\u0041\\uD83D\\uDE00" (round-trip compatible)
+
+auto unicode_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})", ParsePresets::Unicode);
+// Converts to UTF-8: "A😀"
+```
+
+### Error Handling
+```cpp
+try {
+    auto doc = parse_document(invalid_json);
+} catch (const std::runtime_error& e) {
+    // Parse errors
+}
+
+try {
+    auto value = doc.at("/nonexistent/path");
+} catch (const JsonPointerNotFoundException& e) {
+    // Path not found
 }
 ```
 
-### StreamingParser Methods
+## Format Presets
+
+- **`compact`** - Minimal bandwidth, storage efficiency
+- **`pretty`** - General-purpose readable formatting (default)
+- **`config`** - Configuration files with aligned values
+- **`api`** - API responses with consistent structure  
+- **`debug`** - Maximum readability for development
+
+Each preset can be customized with additional options like `--indent`, `--max-width`, `--inline-arrays`, etc.
+
+## JSON Pointer Support
+
+Full RFC 6901 compliance with optimizations:
+- Path enumeration and pattern matching
+- Bulk operations for multiple paths
+- Prefix caching for related path access
+- Safe navigation with optional results
+- Modification operations (set, remove, extract)
+
+## String Escape Handling
+
+JSOM handles JSON string escape sequences as follows:
+
+### Standard Escapes (Converted)
+These escape sequences are converted to their actual characters:
+- `\"` → `"` (quotation mark)
+- `\\` → `\` (backslash)
+- `\/` → `/` (forward slash)
+- `\n` → newline character
+- `\r` → carriage return
+- `\t` → tab character
+- `\b` → backspace
+- `\f` → form feed
+
+### Unicode Escapes (Configurable)
+Unicode escape sequences can be handled in two ways:
+
+#### Default Behavior (Preserves Escapes)
+- `\uXXXX` → kept as literal `\uXXXX` (not converted to UTF-8 characters)
+- Maintains exact **round-trip fidelity** - parsing and re-serializing produces identical output
 
 ```cpp
-// Parsing
-void feed_character(char c);
-void parse_string(const std::string& json);
-void end_input();
-
-// Configuration
-void set_events(const ParseEvents& events);
-void reset();
+// Default: Unicode escapes are preserved
+auto doc = parse_document(R"({"letter": "\u0041", "emoji": "\uD83D\uDE00"})");
+std::string letter = doc["letter"].as<std::string>();  // Contains "\\u0041", not "A"
+std::string serialized = doc.to_json();               // Preserves \u0041 in output
 ```
 
-### JsonValue Methods
+#### Unicode Conversion Option
+- `\uXXXX` → converted to actual UTF-8 characters
+- Supports surrogate pairs for full Unicode support (emojis, etc.)
 
 ```cpp
-// Type and value access
-JsonType type() const;
-const std::string& raw_value() const;
-std::string path() const;
+// Convert Unicode escapes to UTF-8
+auto doc = parse_document(R"({"letter": "\u0041", "emoji": "\uD83D\uDE00"})", ParsePresets::Unicode);
+std::string letter = doc["letter"].as<std::string>();  // Contains "A"
+std::string emoji = doc["emoji"].as<std::string>();    // Contains "😀"
 
-// Type-specific accessors
-bool as_bool() const;
-const std::string& as_string() const;
-double as_double() const;
-int as_int() const;
+// Custom parse options
+JsonParseOptions options;
+options.convert_unicode_escapes = true;
+auto custom_doc = parse_document(json_string, options);
 ```
 
-## Current Status
+Regular UTF-8 characters in JSON strings work normally without escaping in both modes.
 
-**🎉 Complete Production-Ready Implementation (88/88 tests passing)**
+## Testing
 
-- ✅ **Phase 1**: Project skeleton with core data structures
-- ✅ **Phase 2**: Simple value parsing (literals, numbers)  
-- ✅ **Phase 3**: String parsing with escape sequences
-- ✅ **Phase 4**: Container management (objects, arrays)
-- ✅ **Phase 5**: Container content parsing
-- ✅ **Phase 6**: JSON Pointer path tracking
-- ✅ **Phase 7**: Finalization and quality assurance
+```bash
+# Run all tests (67 test cases)
+./build/jsom_tests
 
-**🏆 Production Ready**
-- Zero memory leaks (Valgrind verified)
-- Comprehensive test coverage (88 tests, 1,200+ lines)
-- Clean static analysis (0 clang-tidy warnings)
-- Complete API implementation
+# Run specific test categories
+./build/jsom_tests --gtest_filter="ParseDocumentTest.*"
+./build/jsom_tests --gtest_filter="JsonPointerTest.*"
 
-## Examples
-
-### Parse Configuration File
-```cpp
-jsom::StreamingParser parser;
-std::map<std::string, std::string> config;
-
-jsom::ParseEvents events;
-events.on_value = [&](const jsom::JsonValue& value) {
-    if (value.type() == jsom::JsonType::String) {
-        config[value.path()] = value.as_string();
-    }
-};
-
-parser.set_events(events);
-parser.parse_string(config_json);
-parser.end_input();
-
-// Access: config["/database/host"], config["/api/key"], etc.
+# Performance regression tests
+./build/jsom_tests --gtest_filter="PerformanceRegressionTest.*"
 ```
 
-### Validate JSON Structure
-```cpp
-jsom::StreamingParser parser;
-bool valid = true;
+## Benchmarking
 
-jsom::ParseEvents events;
-events.on_error = [&](const jsom::ParseError& error) {
-    std::cerr << "Invalid JSON at " << error.json_pointer 
-              << ": " << error.message << std::endl;
-    valid = false;
-};
+JSOM provides two benchmarking options:
 
-parser.set_events(events);
-parser.parse_string(json_to_validate);
-parser.end_input();
-
-return valid;
+### Quick Benchmarking
+Built into the CLI for simple parse/serialize timing:
+```bash
+# Time parsing and serialization of a file
+jsom benchmark large.json
+echo '{"test": 123}' | jsom benchmark
 ```
 
-## License
+### Comprehensive Benchmarking
+Professional benchmark suite comparing with nlohmann/json:
+```bash
+# Run all benchmarks with statistical analysis
+./build/jsom_benchmarks
 
-MIT License - see LICENSE file for details.
+# Specific benchmark categories
+./build/jsom_benchmarks --benchmark_filter="Parse.*"
+./build/jsom_benchmarks --benchmark_filter="NumberHeavy.*"
+
+# Export results to JSON
+./build/jsom_benchmarks --benchmark_format=json --benchmark_out=results.json
+```
+
+## Architecture
+
+JSOM uses a modern C++17 architecture:
+- **`std::variant`** for type-safe JSON value storage
+- **`LazyNumber`** class for deferred number parsing with format preservation
+- **`FastParser`** with direct construction to eliminate allocation overhead
+- **`PathCache`** with LRU eviction and prefix optimization
+- **`JsonFormatter`** with intelligent layout algorithms
+
+See `DECISIONS*.md` files for detailed architectural decisions and rationale.
 
 ## Contributing
 
-Contributions welcome! Please see the AI development guides in the `AI/` directory for structured development workflows.
+1. Ensure all tests pass: `make run_tests`
+2. Verify performance: `make run_benchmarks`
+3. Check code style: `make format && make tidy`
+4. Add tests for new functionality
+5. Update documentation as needed
+
+## License
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.
+
+See the `LICENSE` file for complete details.

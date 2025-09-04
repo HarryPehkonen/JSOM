@@ -1,4 +1,4 @@
-HeaderFilterRegex: '.*/JSOM/(include/.*\.hpp|tests/.*\.cpp|[^/]*\.cpp)$'
+HeaderFilterRegex: '.*/JSOM2/(include/.*\.hpp|tests/.*\.cpp|[^/]*\.cpp)$'
 Checks: '-*,bugprone-*,performance-*,readability-*,modernize-*,portability-*'
 
 CheckOptions:

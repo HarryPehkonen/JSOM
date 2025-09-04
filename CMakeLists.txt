@@ -1,77 +1,159 @@
+# JSOM CMakeLists.txt
+# 
+# This file provides the essential CMake configuration for JSOM.
+# It focuses on core development needs: building, testing, benchmarking, and code quality.
+
 cmake_minimum_required(VERSION 3.10)
 project(JSOM VERSION 1.0.0 LANGUAGES CXX)
 
+# Compiler configuration
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For clang-tidy and IDE support
 
+# Compiler-specific optimizations
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # Development flags for good diagnostics
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
+    # Release flags for performance testing
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
+endif()
+
+# FetchContent for dependencies
 include(FetchContent)
 
-# Prevent GoogleTest from being installed
+# Configure GoogleTest (essential for development standards compliance)
 set(INSTALL_GTEST OFF CACHE BOOL "Enable installation of googletest" FORCE)
 set(INSTALL_GMOCK OFF CACHE BOOL "Enable installation of googlemock" FORCE)
 
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.14.0
+    GIT_TAG        v1.14.0  # Pin version for reproducible builds
 )
 
 FetchContent_MakeAvailable(googletest)
 
-add_library(jsom INTERFACE)
-target_include_directories(jsom INTERFACE
+# ================================
+# JSOM Library Target
+# ================================
+
+# Library with JSON Pointer implementation and formatting
+add_library(jsom_lib
+    src/json_document_pointer.cpp
+    src/json_document_formatting.cpp
+)
+target_include_directories(jsom_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+)
+target_compile_features(jsom_lib PUBLIC cxx_std_17)
+
+# Add modern C++ compile flags for the library
+target_compile_options(jsom_lib INTERFACE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
 )
 
-target_compile_features(jsom INTERFACE cxx_std_17)
+# ================================
+# Testing Configuration
+# ================================
 
-# Optional JSOM CLI executable (enabled with -DCLI=ON)
-option(CLI "Build JSOM CLI tool" OFF)
+enable_testing()
 
-if(CLI)
-    add_executable(jsom_cli src/main.cpp)
-    target_link_libraries(jsom_cli jsom)
-    target_include_directories(jsom_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(jsom_cli PROPERTIES OUTPUT_NAME jsom)
+# Test executable
+add_executable(jsom_tests
+    # Core architecture tests
+    tests/test_main.cpp
+    tests/test_lazy_number.cpp           # LazyNumber class tests
+    tests/test_json_document.cpp         # JsonDocument with std::variant
+    tests/test_document_builder.cpp      # Integration tests
+    tests/test_api_compatibility.cpp     # API examples validation
     
-    message(STATUS "JSOM CLI tool enabled")
-endif()
+    # JSON Pointer tests
+    tests/test_json_pointer.cpp          # JSON Pointer functionality tests
+    
+    # Performance regression tests  
+    tests/test_performance_regression.cpp
+    
+    # Memory safety tests
+    tests/test_memory_safety.cpp
+    
+    # Format preservation tests
+    tests/test_format_preservation.cpp
+    
+    # Unicode escape tests
+    tests/test_unicode_escapes.cpp       # Unicode escape sequence handling
+)
 
-# Optional benchmarks (enabled with -DBENCHMARKS=ON)
-option(BENCHMARKS "Build performance benchmarks" OFF)
+target_link_libraries(jsom_tests
+    jsom_lib
+    gtest
+    gtest_main
+    gmock
+    gmock_main
+)
+
+target_include_directories(jsom_tests PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Discover and register tests with CTest
+include(GoogleTest)
+gtest_discover_tests(jsom_tests)
+
+# Custom target for running tests
+add_custom_target(run_tests
+    COMMAND ${CMAKE_CTEST_COMMAND} --verbose --output-on-failure
+    DEPENDS jsom_tests
+    COMMENT "Running all tests"
+)
+
+# ================================
+# Benchmark Configuration  
+# ================================
+
+# Benchmarks for performance validation
+option(BENCHMARKS "Build performance benchmarks" ON)  # Enable for performance testing
 
 if(BENCHMARKS)
-    # Disable benchmark install to keep it out of our install targets
+    # Configure Google Benchmark
     set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "Enable installation of benchmark" FORCE)
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Enable testing of the benchmark library" FORCE)
     
     FetchContent_Declare(
         benchmark
         GIT_REPOSITORY https://github.com/google/benchmark.git
-        GIT_TAG v1.8.3
+        GIT_TAG v1.8.3  # Pin version for reproducible builds
     )
     
+    # nlohmann::json for performance comparison
     FetchContent_Declare(
         nlohmann_json
         GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.3
+        GIT_TAG v3.11.3  # Pin version for fair comparison
     )
     
     FetchContent_MakeAvailable(benchmark nlohmann_json)
     
-    # Create benchmark executable
+    # Benchmark executable
     add_executable(jsom_benchmarks
+        # Use provided benchmark utilities
         benchmarks/benchmark_main.cpp
-        benchmarks/benchmark_parsing.cpp
-        benchmarks/benchmark_dom_access.cpp
-        benchmarks/benchmark_construction.cpp
-        benchmarks/benchmark_serialization.cpp
+        benchmarks/benchmark_utils.hpp
+        
+        # Performance benchmarks
+        benchmarks/benchmark_lazy_evaluation.cpp
+        benchmarks/benchmark_parse_serialize.cpp
+        benchmarks/benchmark_format_preservation.cpp
+        benchmarks/benchmark_memory_usage.cpp
+        
+        # Compatibility benchmarks (same patterns as Phase 2)
+        benchmarks/benchmark_parsing_compat.cpp
+        benchmarks/benchmark_dom_access_compat.cpp
     )
     
     target_link_libraries(jsom_benchmarks
-        jsom
+        jsom_lib
         benchmark::benchmark
         benchmark::benchmark_main
         nlohmann_json::nlohmann_json
@@ -82,57 +164,42 @@ if(BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
     )
     
-    # Add custom target to run benchmarks
+    # Benchmark targets for performance validation
     add_custom_target(run_benchmarks
-        COMMAND jsom_benchmarks
+        COMMAND jsom_benchmarks --benchmark_min_time=1.0s
         DEPENDS jsom_benchmarks
         COMMENT "Running performance benchmarks"
     )
     
-    message(STATUS "JSOM benchmarks enabled")
+    # Specific target for number-heavy performance validation
+    add_custom_target(validate_number_performance
+        COMMAND jsom_benchmarks --benchmark_filter="NumberHeavy" --benchmark_min_time=2.0s
+        DEPENDS jsom_benchmarks
+        COMMENT "Validating number-heavy JSON performance"
+    )
+    
+    # Parse-serialize workflow validation
+    add_custom_target(validate_parse_serialize
+        COMMAND jsom_benchmarks --benchmark_filter="ParseSerialize" --benchmark_min_time=2.0s
+        DEPENDS jsom_benchmarks
+        COMMENT "Validating parse-serialize performance"
+    )
+    
+    message(STATUS "Performance benchmarks enabled")
 endif()
 
-enable_testing()
-
-add_executable(jsom_tests
-    tests/test_main.cpp
-    tests/test_smoke.cpp
-    tests/test_utf8.cpp
-    tests/test_parsing.cpp
-    tests/test_strings.cpp
-    tests/test_containers.cpp
-    tests/test_phase5.cpp
-    tests/test_path_tracking.cpp
-    tests/test_phase7.cpp
-    tests/test_batch_parser.cpp
-    tests/test_intelligent_serialization.cpp
-)
-
-target_link_libraries(jsom_tests
-    jsom
-    gtest
-    gtest_main
-    gmock
-    gmock_main
-)
-
-target_include_directories(jsom_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-include(GoogleTest)
-gtest_discover_tests(jsom_tests)
-
-add_custom_target(run_tests
-    COMMAND ${CMAKE_CTEST_COMMAND} --verbose
-    DEPENDS jsom_tests
-)
+# ================================
+# Code Quality Tools
+# ================================
 
 # Find source files for formatting and linting
 file(GLOB_RECURSE JSOM_SOURCES 
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/jsom.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/*.cpp
 )
 
-# Format target using clang-format
+# clang-format (essential for AI/DEVELOPMENT_STANDARDS/CODE_QUALITY.md compliance)
 find_program(CLANG_FORMAT NAMES clang-format)
 if(CLANG_FORMAT)
     add_custom_target(format
@@ -140,13 +207,14 @@ if(CLANG_FORMAT)
         COMMENT "Formatting source files with clang-format"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    message(STATUS "clang-format available - use 'make format' for code formatting")
 else()
     add_custom_target(format
-        COMMAND ${CMAKE_COMMAND} -E echo "clang-format not found"
+        COMMAND ${CMAKE_COMMAND} -E echo "clang-format not found - install for code formatting"
     )
 endif()
 
-# Tidy target using clang-tidy
+# clang-tidy (essential for AI/DEVELOPMENT_STANDARDS/CODE_QUALITY.md compliance)
 find_program(CLANG_TIDY NAMES clang-tidy)
 if(CLANG_TIDY)
     add_custom_target(tidy
@@ -154,57 +222,170 @@ if(CLANG_TIDY)
         COMMENT "Running clang-tidy on source files"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    message(STATUS "clang-tidy available - use 'make tidy' for static analysis")
 else()
     add_custom_target(tidy
-        COMMAND ${CMAKE_COMMAND} -E echo "clang-tidy not found"
+        COMMAND ${CMAKE_COMMAND} -E echo "clang-tidy not found - install for static analysis"
     )
 endif()
 
-# Installation configuration
-include(GNUInstallDirs)
-
-# Install the header file
-install(FILES include/jsom.hpp 
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
+# Combined quality check target
+add_custom_target(quality_check
+    COMMAND ${CMAKE_COMMAND} --build . --target format
+    COMMAND ${CMAKE_COMMAND} --build . --target tidy
+    COMMENT "Running all code quality checks"
 )
 
-# Install the CLI tool if built
-if(CLI)
-    install(TARGETS jsom_cli
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+# ================================
+# Fuzzing and Memory Checking
+# ================================
+
+# Find fuzzing tools
+find_program(CLANG_PLUS_PLUS NAMES clang++)
+find_program(VALGRIND NAMES valgrind)
+
+# Fuzzing target with libFuzzer
+if(CLANG_PLUS_PLUS)
+    add_custom_target(build_fuzzer
+        COMMAND ${CLANG_PLUS_PLUS} -g -O1 -fsanitize=fuzzer,address,undefined
+                -I${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_pointer.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_formatting.cpp
+                -o fuzz_jsom
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Building fuzzer with AddressSanitizer and UndefinedBehaviorSanitizer"
+    )
+    
+    # Quick fuzzing (1 minute)
+    add_custom_target(fuzz_quick
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=60
+        DEPENDS build_fuzzer
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running quick fuzz test (1 minute)"
+    )
+    
+    # Standard fuzzing (10 minutes)
+    add_custom_target(fuzz
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=600
+        DEPENDS build_fuzzer
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running standard fuzz test (10 minutes)"
+    )
+    
+    # Long fuzzing (1 hour)
+    add_custom_target(fuzz_long
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=3600
+        DEPENDS build_fuzzer
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running extended fuzz test (1 hour)"
+    )
+    
+    message(STATUS "Fuzzing available - use 'make fuzz' for 10-minute test, 'make fuzz_long' for 1-hour test")
+else()
+    add_custom_target(fuzz
+        COMMAND ${CMAKE_COMMAND} -E echo "clang++ not found - install for fuzzing support"
     )
 endif()
 
-# Configure package config files for find_package
-include(CMakePackageConfigHelpers)
+# Valgrind memory checking
+if(VALGRIND)
+    add_custom_target(memcheck
+        COMMAND ${VALGRIND} --leak-check=full --show-leak-kinds=all 
+                --track-origins=yes --error-exitcode=1
+                ./jsom format ${CMAKE_CURRENT_SOURCE_DIR}/test_edge_cases.json > /dev/null
+        DEPENDS jsom
+        COMMENT "Running valgrind memory check"
+    )
+    
+    add_custom_target(memcheck_tests
+        COMMAND ${VALGRIND} --leak-check=full --error-exitcode=1
+                ./jsom_tests
+        DEPENDS jsom_tests
+        COMMENT "Running valgrind on all tests"
+    )
+    
+    message(STATUS "Valgrind available - use 'make memcheck' for memory checking")
+else()
+    add_custom_target(memcheck
+        COMMAND ${CMAKE_COMMAND} -E echo "valgrind not found - install for memory checking"
+    )
+endif()
 
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/jsomConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/jsomConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsom
+# Combined security testing target
+add_custom_target(security_check
+    COMMAND ${CMAKE_COMMAND} --build . --target fuzz_quick
+    COMMAND ${CMAKE_COMMAND} --build . --target memcheck
+    COMMENT "Running security checks (fuzzing + memory check)"
 )
 
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/jsomConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
+# ================================
+# CLI Tool
+# ================================
+
+# JSOM CLI executable
+add_executable(jsom
+    src/jsom_cli.cpp
+    src/json_document_pointer.cpp
 )
 
-# Install the CMake config files
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/jsomConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/jsomConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsom
+target_link_libraries(jsom
+    jsom_lib
 )
 
-# Install the interface library target
+target_include_directories(jsom PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Install target for CLI
 install(TARGETS jsom
-    EXPORT jsomTargets
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    RUNTIME DESTINATION bin
 )
 
-install(EXPORT jsomTargets
-    FILE jsomTargets.cmake
-    NAMESPACE jsom::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsom
+# ================================
+# Development Convenience Targets
+# ================================
+
+# Complete development cycle target
+add_custom_target(dev_cycle
+    COMMAND ${CMAKE_COMMAND} --build . --target quality_check
+    COMMAND ${CMAKE_COMMAND} --build . --target run_tests
+    COMMAND ${CMAKE_COMMAND} --build . --target run_benchmarks
+    COMMENT "Complete development cycle: format, lint, test, benchmark"
 )
+
+# Validation target (for final acceptance testing)
+add_custom_target(validation
+    COMMAND ${CMAKE_COMMAND} --build . --target run_tests
+    COMMAND ${CMAKE_COMMAND} --build . --target validate_number_performance
+    COMMAND ${CMAKE_COMMAND} --build . --target validate_parse_serialize
+    COMMENT "Final acceptance validation"
+)
+
+# ================================
+# Configuration Summary
+# ================================
+
+message(STATUS "")
+message(STATUS "JSOM Configuration Summary:")
+message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Benchmarks: ${BENCHMARKS}")
+message(STATUS "")
+message(STATUS "Available targets:")
+message(STATUS "  make jsom_tests            - Build test suite")
+message(STATUS "  make run_tests             - Run all tests")
+message(STATUS "  make jsom_benchmarks       - Build benchmarks") 
+message(STATUS "  make validate_number_performance - Test number-heavy performance")
+message(STATUS "  make validate_parse_serialize - Test parse-serialize performance")
+message(STATUS "  make format                - Format code with clang-format")
+message(STATUS "  make tidy                  - Lint code with clang-tidy")
+message(STATUS "  make fuzz_quick            - Run 1-minute fuzz test")
+message(STATUS "  make fuzz                  - Run 10-minute fuzz test")
+message(STATUS "  make fuzz_long             - Run 1-hour fuzz test")
+message(STATUS "  make memcheck              - Run valgrind on CLI")
+message(STATUS "  make memcheck_tests        - Run valgrind on test suite")
+message(STATUS "  make security_check        - Run fuzzing + memory checks")
+message(STATUS "  make dev_cycle             - Complete development cycle")
+message(STATUS "  make validation            - Final acceptance testing")
+message(STATUS "")

@@ -1,72 +1,41 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# debug information files
-*.dwo
-
 # Build directories
 build/
-cmake-build-*/
-build-*/
+CMakeFiles/
+_deps/
 
-# IDE files
+# Compiled files
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Debug/test files
+debug_*
+test_*.json
+*.txt
+!CMakeLists.txt
+!requirements.txt
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db
 
-# Test results and coverage
-Testing/
-*.gcda
-*.gcno
-*.gcov
-coverage.info
-coverage/
-
-# CMake files (if not using build directory)
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-Makefile
-compile_commands.json
+# Fuzzing
+fuzz_*
+crash-*
+leak-*
+timeout-*
+corpus/
