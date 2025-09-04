@@ -28,50 +28,69 @@ Benchmark results show 2.01x performance improvement over baseline with full fun
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - CMake 3.10+
 
+### ⚠ Safety Note
+**Always stay in the project root directory when possible.** Avoid changing to `./build/` directory during development to prevent accidental `rm -rf *` commands from deleting your entire project. Use relative paths like `./build/jsom_tests` instead of changing directories.
+
 ### Quick Build
 ```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+cmake -B build
+cmake --build build
+```
+
+### Recommended Safe Build (Stay in Root)
+```bash
+mkdir -p build
+cmake -S . -B build
+cmake --build build -j$(nproc)
+# All executables accessible via ./build/jsom, ./build/jsom_tests, etc.
 ```
 
 ### Build Options
 ```bash
-# Release build with optimizations
-cmake -DCMAKE_BUILD_TYPE=Release ..
+# Release build with optimizations (from project root)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 
 # Build with benchmarks enabled (default)
-cmake -DBENCHMARKS=ON ..
+cmake -S . -B build -DBENCHMARKS=ON
+cmake --build build -j$(nproc)
 
-# Run all tests
-make run_tests
+# Run all tests (from project root)
+./build/jsom_tests
+# Or use make targets:
+cmake --build build --target run_tests
 
-# Run benchmarks
-make run_benchmarks
+# Run benchmarks (from project root)
+./build/jsom_benchmarks
+# Or use make targets:
+cmake --build build --target run_benchmarks
 ```
+
+## Installing
+sudo cmake --build build --target install
 
 ## Usage
 
 ### Command Line Tool
 ```bash
-# Format JSON with different presets
-jsom format --preset=pretty data.json
-jsom format --preset=compact data.json
-jsom format --preset=config settings.json
-jsom format --indent=4 --max-width=80 data.json
+# Format JSON with different presets (from project root)
+./build/jsom format --preset=pretty data.json
+./build/jsom format --preset=compact data.json
+./build/jsom format --preset=config settings.json
+./build/jsom format --indent=4 --max-width=80 data.json
 
 # Validate JSON files
-jsom validate file1.json file2.json
+./build/jsom validate file1.json file2.json
 
 # JSON Pointer operations (RFC 6901)
-jsom pointer get "/users/0/name" data.json
-jsom pointer exists "/config/database/host" config.json
-jsom pointer list --max-depth=3 data.json
-jsom pointer find "/users/*/email" data.json
-jsom pointer bulk-get "/users/0/name,/users/0/age" data.json
+./build/jsom pointer get "/users/0/name" data.json
+./build/jsom pointer exists "/config/database/host" config.json
+./build/jsom pointer list --max-depth=3 data.json
+./build/jsom pointer find "/users/*/email" data.json
+./build/jsom pointer bulk-get "/users/0/name,/users/0/age" data.json
 
 # Quick performance benchmarking (simple timing)
-jsom benchmark large.json
+./build/jsom benchmark large.json
 ```
 
 ### C++ API
@@ -125,7 +144,7 @@ auto default_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})");
 // Preserves as literal: "\\u0041\\uD83D\\uDE00" (round-trip compatible)
 
 auto unicode_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})", ParsePresets::Unicode);
-// Converts to UTF-8: "A😀"
+// Converts to UTF-8: "A "
 ```
 
 ### Error Handling
@@ -155,12 +174,130 @@ Each preset can be customized with additional options like `--indent`, `--max-wi
 
 ## JSON Pointer Support
 
-Full RFC 6901 compliance with optimizations:
-- Path enumeration and pattern matching
-- Bulk operations for multiple paths
-- Prefix caching for related path access
-- Safe navigation with optional results
-- Modification operations (set, remove, extract)
+JSOM provides comprehensive RFC 6901 JSON Pointer support with advanced optimizations and performance enhancements.
+
+### RFC 6901 Compliance
+
+Full compliance with the RFC 6901 JSON Pointer standard:
+- **Standard escape sequences**: Proper handling of `~0` (for `~`) and `~1` (for `/`)
+- **Array index validation**: Strict validation of array indices (no leading zeros except "0")
+- **Path resolution**: Correct navigation through nested objects and arrays
+- **Error handling**: Comprehensive exception hierarchy with specific error types
+
+### Core Navigation Operations
+
+```cpp
+// Navigate to a path (throws JsonPointerNotFoundException if not found)
+auto value = doc.at("/users/0/name");
+
+// Safe navigation (returns nullptr if not found)
+auto* safe_value = doc.find("/users/0/name");
+
+// Check path existence
+bool exists = doc.exists("/users/0/profile/email");
+```
+
+### Path Modification Operations
+
+```cpp
+// Set value at path (creates intermediate objects/arrays as needed)
+doc.set_at("/users/0/profile/active", JsonDocument(true));
+
+// Remove value at path
+bool removed = doc.remove_at("/users/0/age");
+
+// Extract value (remove and return)
+auto extracted = doc.extract_at("/config/temp_setting");
+```
+
+### Batch Operations
+
+Optimized for processing multiple paths efficiently:
+
+```cpp
+// Get multiple values in one operation
+std::vector<std::string> paths = {"/users/0/name", "/users/1/name", "/config/host"};
+auto results = doc.at_multiple(paths);
+
+// Check multiple paths exist
+auto existence_checks = doc.exists_multiple(paths);
+```
+
+### Path Introspection
+
+```cpp
+// List all available paths
+auto all_paths = doc.list_paths();
+
+// List paths with depth limit
+auto shallow_paths = doc.list_paths(2);
+
+// Find paths matching pattern
+auto user_emails = doc.find_paths("/users/*/email");
+
+// Count total available paths
+size_t path_count = doc.count_paths();
+```
+
+### Performance Optimizations
+
+JSOM includes advanced caching for high-performance path operations:
+
+- **Multi-level caching**: LRU cache for exact paths, prefix cache for related operations
+- **Prefix optimization**: Intelligent caching of intermediate path segments
+- **Batch optimization**: Sorted processing for maximum cache reuse
+
+```cpp
+// Pre-warm cache for known access patterns
+std::vector<std::string> likely_paths = {"/users/0/name", "/users/0/profile"};
+doc.warm_path_cache(likely_paths);
+
+// Precompute paths for complex documents
+doc.precompute_paths(3); // Precompute up to depth 3
+
+// Get cache performance statistics
+auto stats = doc.get_path_cache_stats();
+```
+
+### Command Line Interface
+
+Complete CLI support for all JSON Pointer operations:
+
+```bash
+# Navigation operations
+jsom pointer get "/users/0/name" data.json
+jsom pointer exists "/config/database/host" config.json
+jsom pointer find "/users/*/email" data.json
+
+# Modification operations  
+jsom pointer set "/users/0/active" true data.json
+jsom pointer remove "/users/0/temp_field" data.json
+jsom pointer extract "/config/deprecated" data.json
+
+# Batch and introspection operations
+jsom pointer bulk-get "/users/0/name,/users/1/name,/config/port" data.json
+jsom pointer list --max-depth=3 --include-values data.json
+jsom pointer benchmark "/users/0/name,/config/database/host" data.json
+```
+
+### Error Handling
+
+Comprehensive exception hierarchy for robust error handling:
+
+```cpp
+try {
+    auto value = doc.at("/nonexistent/path");
+} catch (const JsonPointerNotFoundException& e) {
+    // Path does not exist
+    std::cout << "Path not found: " << e.get_pointer() << std::endl;
+} catch (const JsonPointerTypeException& e) {
+    // Type mismatch (e.g., trying to index into a string)
+    std::cout << "Type error at: " << e.get_pointer() << std::endl;
+} catch (const InvalidJsonPointerException& e) {
+    // Malformed pointer syntax
+    std::cout << "Invalid pointer: " << e.get_pointer() << std::endl;
+}
+```
 
 ## String Escape Handling
 
@@ -199,7 +336,7 @@ std::string serialized = doc.to_json();               // Preserves \u0041 in out
 // Convert Unicode escapes to UTF-8
 auto doc = parse_document(R"({"letter": "\u0041", "emoji": "\uD83D\uDE00"})", ParsePresets::Unicode);
 std::string letter = doc["letter"].as<std::string>();  // Contains "A"
-std::string emoji = doc["emoji"].as<std::string>();    // Contains "😀"
+std::string emoji = doc["emoji"].as<std::string>();    // Contains " "
 
 // Custom parse options
 JsonParseOptions options;
@@ -230,9 +367,9 @@ JSOM provides two benchmarking options:
 ### Quick Benchmarking
 Built into the CLI for simple parse/serialize timing:
 ```bash
-# Time parsing and serialization of a file
-jsom benchmark large.json
-echo '{"test": 123}' | jsom benchmark
+# Time parsing and serialization of a file (from project root)
+./build/jsom benchmark large.json
+echo '{"test": 123}' | ./build/jsom benchmark
 ```
 
 ### Comprehensive Benchmarking
