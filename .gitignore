@@ -34,7 +34,7 @@ __pycache__/
 Thumbs.db
 
 # Fuzzing
-fuzz_*
+fuzz_jsom
 crash-*
 leak-*
 timeout-*

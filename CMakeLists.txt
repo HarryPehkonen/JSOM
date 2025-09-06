@@ -249,7 +249,7 @@ if(CLANG_PLUS_PLUS)
     add_custom_target(build_fuzzer
         COMMAND ${CLANG_PLUS_PLUS} -g -O1 -fsanitize=fuzzer,address,undefined
                 -I${CMAKE_CURRENT_SOURCE_DIR}/include
-                ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzzer.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_pointer.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_formatting.cpp
                 -o fuzz_jsom
