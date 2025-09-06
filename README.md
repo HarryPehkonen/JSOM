@@ -399,9 +399,9 @@ See `DECISIONS*.md` files for detailed architectural decisions and rationale.
 
 ## Contributing
 
-1. Ensure all tests pass: `make run_tests`
-2. Verify performance: `make run_benchmarks`
-3. Check code style: `make format && make tidy`
+1. Ensure all tests pass: `cmake --build build --target run_tests`
+2. Verify performance: `cmake --build build --target run_benchmarks`
+3. Check code style: `cmake --build build --target format && cmake --build build --target tidy`
 4. Add tests for new functionality
 5. Update documentation as needed
 
