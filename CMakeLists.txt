@@ -259,6 +259,7 @@ if(CLANG_PLUS_PLUS)
     
     # Quick fuzzing (1 minute)
     add_custom_target(fuzz_quick
+        COMMAND ${CMAKE_COMMAND} -E make_directory corpus
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=60
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -267,6 +268,7 @@ if(CLANG_PLUS_PLUS)
     
     # Standard fuzzing (10 minutes)
     add_custom_target(fuzz
+        COMMAND ${CMAKE_COMMAND} -E make_directory corpus
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -275,6 +277,7 @@ if(CLANG_PLUS_PLUS)
     
     # Long fuzzing (1 hour)
     add_custom_target(fuzz_long
+        COMMAND ${CMAKE_COMMAND} -E make_directory corpus
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=3600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
