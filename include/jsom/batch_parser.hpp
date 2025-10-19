@@ -3,6 +3,7 @@
 #include "fast_parser.hpp"
 #include "json_document.hpp"
 #include "streaming_parser.hpp"
+#include <algorithm>
 #include <stdexcept>
 
 namespace jsom {

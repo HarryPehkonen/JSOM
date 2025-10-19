@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -7,7 +8,7 @@
 
 namespace jsom {
 
-enum class JsonType : std::uint8_t { Null, Boolean, Number, String, Object, Array };
+enum class JsonType : uint8_t { Null, Boolean, Number, String, Object, Array };
 
 class TypeException : public std::runtime_error {
 public:

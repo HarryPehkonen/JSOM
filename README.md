@@ -1,6 +1,6 @@
 # JSOM - High-Performance JSON Parser
 
-A fast, modern C++17 JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting.
+A fast, modern JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting. Requires C++17 or newer (fully compatible with C++20, C++23, and beyond).
 
 ## Features
 
@@ -8,7 +8,7 @@ A fast, modern C++17 JSON parser with lazy evaluation, RFC 6901 JSON Pointer sup
 - **RFC 6901 JSON Pointers** - Full standard compliance with path caching optimization
 - **Intelligent formatting** - Multiple presets for different use cases (compact, pretty, config, API, debug)
 - **Memory efficient** - Optimized allocation patterns, ~50% reduction vs naive double-buffering
-- **Modern C++17** - Safe, clean implementation using std::variant and RAII
+- **Modern C++** - Safe, clean C++17 implementation using std::variant and RAII, compatible with C++20+
 - **Zero dependencies** - Self-contained with optional benchmarking against nlohmann/json
 - **Comprehensive CLI** - Full-featured command-line tool for JSON operations
 
@@ -25,8 +25,11 @@ Benchmark results show 2.01x performance improvement over baseline with full fun
 ## Building
 
 ### Requirements
+- **C++17 or newer** (C++20, C++23, etc. fully supported)
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - CMake 3.10+
+
+**Note:** The library uses C++17 internally but works seamlessly with projects using C++20, C++23, or any future C++ standard. Your project is not forced to use a specific C++ version.
 
 ### ⚠ Safety Note
 **Always stay in the project root directory when possible.** Avoid changing to `./build/` directory during development to prevent accidental `rm -rf *` commands from deleting your entire project. Use relative paths like `./build/jsom_tests` instead of changing directories.
@@ -43,6 +46,13 @@ mkdir -p build
 cmake -S . -B build
 cmake --build build -j$(nproc)
 # All executables accessible via ./build/jsom, ./build/jsom_tests, etc.
+```
+
+### Using in Your C++20/C++23 Project
+```bash
+# JSOM works with any C++17+ standard
+cmake -S . -B build -DCMAKE_CXX_STANDARD=20  # Or 23, 26, etc.
+cmake --build build -j$(nproc)
 ```
 
 ### Build Options

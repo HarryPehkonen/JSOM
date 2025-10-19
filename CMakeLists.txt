@@ -46,7 +46,7 @@ add_library(jsom_lib
 target_include_directories(jsom_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_compile_features(jsom_lib PUBLIC cxx_std_17)
+target_compile_features(jsom_lib PRIVATE cxx_std_17)
 
 # Add modern C++ compile flags for the library
 target_compile_options(jsom_lib INTERFACE
