@@ -67,21 +67,24 @@ add_executable(jsom_tests
     tests/test_json_document.cpp         # JsonDocument with std::variant
     tests/test_document_builder.cpp      # Integration tests
     tests/test_api_compatibility.cpp     # API examples validation
-    
+
     # JSON Pointer tests
     tests/test_json_pointer.cpp          # JSON Pointer functionality tests
-    
-    # Performance regression tests  
+
+    # Performance regression tests
     tests/test_performance_regression.cpp
-    
+
     # Memory safety tests
     tests/test_memory_safety.cpp
-    
+
     # Format preservation tests
     tests/test_format_preservation.cpp
-    
+
     # Unicode escape tests
     tests/test_unicode_escapes.cpp       # Unicode escape sequence handling
+
+    # Ergonomic construction tests
+    tests/test_ergonomic_construction.cpp # Factory methods and direct constructors
 )
 
 target_link_libraries(jsom_tests

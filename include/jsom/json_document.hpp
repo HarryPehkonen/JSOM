@@ -120,11 +120,52 @@ public:
     JsonDocument(std::initializer_list<JsonDocument> init)
         : type_(JsonType::Array), storage_(std::vector<JsonDocument>(init)), path_cache_(nullptr) {}
 
+    // Direct container constructors - efficient when you already have JsonDocument containers
+    explicit JsonDocument(std::map<std::string, JsonDocument> obj)
+        : type_(JsonType::Object), storage_(std::move(obj)), path_cache_(nullptr) {}
+
+    explicit JsonDocument(std::vector<JsonDocument> arr)
+        : type_(JsonType::Array), storage_(std::move(arr)), path_cache_(nullptr) {}
+
     static auto from_lazy_number(const std::string& repr) -> JsonDocument {
         JsonDocument doc;
         doc.type_ = JsonType::Number;
         doc.storage_ = LazyNumber(repr);
         return doc;
+    }
+
+    // Template factory methods for converting containers to JsonDocument
+    // Zero-overhead - converter is inlined by compiler
+    template <typename T, typename Converter>
+    static auto from_map(const std::map<std::string, T>& map, Converter converter)
+        -> JsonDocument {
+        std::map<std::string, JsonDocument> result;
+        for (const auto& [key, value] : map) {
+            result.emplace(key, converter(value));
+        }
+        return JsonDocument(std::move(result));
+    }
+
+    template <typename T, typename Converter>
+    static auto from_vector(const std::vector<T>& vec, Converter converter) -> JsonDocument {
+        std::vector<JsonDocument> result;
+        result.reserve(vec.size());
+        for (const auto& value : vec) {
+            result.push_back(converter(value));
+        }
+        return JsonDocument(std::move(result));
+    }
+
+    // Convenience overloads for types that JsonDocument already accepts
+    // Automatically converts int, double, bool, std::string without explicit converter
+    template <typename T>
+    static auto from_map(const std::map<std::string, T>& map) -> JsonDocument {
+        return from_map(map, [](const T& v) { return JsonDocument(v); });
+    }
+
+    template <typename T>
+    static auto from_vector(const std::vector<T>& vec) -> JsonDocument {
+        return from_vector(vec, [](const T& v) { return JsonDocument(v); });
     }
 
     auto type() const -> JsonType { return type_; }

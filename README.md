@@ -104,6 +104,8 @@ sudo cmake --build build --target install
 ```
 
 ### C++ API
+
+#### Parsing JSON
 ```cpp
 #include <jsom/jsom.hpp>
 using namespace jsom;
@@ -123,13 +125,51 @@ auto config = R"({
 if (doc.is_object()) {
     std::string name = doc["name"].as<std::string>();
     int age = doc["age"].as<int>();
-    
+
     // Array access
     if (doc["scores"].is_array()) {
         int first_score = doc["scores"][0].as<int>();
     }
 }
+```
 
+#### Building JSON from C++ Containers
+
+JSOM provides ergonomic ways to construct JSON documents from standard C++ containers:
+
+```cpp
+// From C++ containers with automatic type conversion
+std::map<std::string, int> scores = {{"alice", 95}, {"bob", 87}};
+auto doc = JsonDocument::from_map(scores);
+// Result: {"alice":95,"bob":87}
+
+std::vector<std::string> names = {"Alice", "Bob", "Charlie"};
+auto arr = JsonDocument::from_vector(names);
+// Result: ["Alice","Bob","Charlie"]
+
+// From containers requiring conversion
+std::map<std::string, size_t> frequency_map = {{"apple", 5}, {"banana", 3}};
+auto doc = JsonDocument::from_map(frequency_map, [](size_t v) {
+    return JsonDocument(static_cast<int>(v));
+});
+
+// Direct construction from JsonDocument containers (zero-copy move)
+std::map<std::string, JsonDocument> obj_map;
+obj_map["name"] = JsonDocument("Alice");
+obj_map["age"] = JsonDocument(30);
+JsonDocument doc(std::move(obj_map));
+
+// Complex nested structures made easy
+std::map<std::string, JsonDocument> analysis;
+analysis["frequencies"] = JsonDocument::from_map(freq_counts, [](size_t v) {
+    return JsonDocument(static_cast<int>(v));
+});
+analysis["averages"] = JsonDocument::from_map(avg_values);
+JsonDocument report(std::move(analysis));
+```
+
+#### JSON Pointer Operations
+```cpp
 // JSON Pointer operations
 auto value = doc.at("/users/0/name");
 bool exists = doc.exists("/config/database/host");
