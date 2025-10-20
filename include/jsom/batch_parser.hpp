@@ -246,7 +246,7 @@ inline auto parse_document_streaming(const std::string& json) -> JsonDocument {
     events.on_exit_container
         = [&builder](const std::string& path) { builder.on_exit_container(path); };
     events.on_error
-        = [&builder](const ParseError& error) { jsom::DocumentBuilder::on_error(error); };
+        = [](const ParseError& error) { jsom::DocumentBuilder::on_error(error); };
 
     parser.set_events(events);
     parser.parse_string(json);
