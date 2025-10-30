@@ -94,58 +94,45 @@ sudo cmake --install build
 Then in your project's `CMakeLists.txt`:
 ```cmake
 find_package(jsom REQUIRED)
-target_link_libraries(your_target PRIVATE jsom_lib)
+target_link_libraries(your_target PRIVATE JSOM::jsom)
 ```
 
-### Option 2: CMake FetchContent (Minimal Build)
+### Option 2: CMake FetchContent (Fast and Simple)
 
-For projects using CMake FetchContent, this approach tries local installation first, then fetches on demand. The minimal library build avoids benchmark configuration overhead, reducing CMake time from ~60 seconds to ~2 seconds:
+For projects using CMake FetchContent, JSOM integrates cleanly with fast configuration times (~2 seconds):
 
 ```cmake
-# Try to find locally first, then fetch if needed
-find_package(jsom QUIET)
+include(FetchContent)
 
-if(NOT jsom_FOUND)
-    message(STATUS "JSOM not found locally, fetching from GitHub...")
-    include(FetchContent)
+FetchContent_Declare(
+    JSOM
+    GIT_REPOSITORY https://github.com/HarryPehkonen/JSOM.git
+    GIT_TAG main  # Or pin to specific version: GIT_TAG v1.0.0
+    GIT_SHALLOW TRUE
+)
 
-    FetchContent_Declare(
-        JSOM
-        GIT_REPOSITORY https://github.com/HarryPehkonen/JSOM.git
-        GIT_TAG main
-        GIT_SHALLOW TRUE
-    )
+FetchContent_MakeAvailable(JSOM)
 
-    FetchContent_GetProperties(JSOM)
-    if(NOT jsom_POPULATED)
-        FetchContent_Populate(JSOM)
+target_link_libraries(your_target PRIVATE JSOM::jsom)
+```
 
-        # Build minimal library (avoids benchmark suite overhead)
-        add_library(jsom_lib
-            ${jsom_SOURCE_DIR}/src/json_document_pointer.cpp
-            ${jsom_SOURCE_DIR}/src/json_document_formatting.cpp
-        )
-
-        target_include_directories(jsom_lib PUBLIC
-            ${jsom_SOURCE_DIR}/include
-        )
-
-        set_target_properties(jsom_lib PROPERTIES
-            CXX_STANDARD 17
-            CXX_STANDARD_REQUIRED ON
-        )
-    endif()
-else()
-    message(STATUS "Using locally installed JSOM")
-endif()
-
-target_link_libraries(your_target PRIVATE jsom_lib)
+**Optional: Enable benchmarks if needed**
+```bash
+cmake -B build -DJSOM_BUILD_BENCHMARKS=ON
 ```
 
 **Important Notes:**
-- Use `jsom_lib` (not `jsom`) to avoid conflicts with JSOM's CLI executable target
 - JSOM requires C++17, but your project can use C++20, C++23, or later
-- For complete integration guide with examples and troubleshooting, see [INTEGRATING_JSOM.md](INTEGRATING_JSOM.md)
+- When used as a dependency, tests and benchmarks are automatically disabled for fast builds
+- Use the namespaced `JSOM::jsom` target (modern CMake convention)
+
+**Type Handling Tip:** If you encounter ambiguous overload errors with `int64_t`, use explicit casts:
+```cpp
+// Use int for JSON numbers
+JsonDocument(static_cast<int>(count))   // Good
+// Avoid int64_t (can be ambiguous)
+JsonDocument(static_cast<int64_t>(val)) // May cause overload issues
+```
 
 ## Usage
 
