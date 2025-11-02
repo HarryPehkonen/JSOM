@@ -21,11 +21,11 @@ private:
     mutable std::optional<double> cached_value_;
 
 public:
-    explicit LazyNumber(std::string repr) : original_repr_(std::move(repr)) {}
+    explicit LazyNumber(const std::string& repr) : original_repr_(repr) {}
     explicit LazyNumber(double value) : cached_value_(value) {}
     explicit LazyNumber(int value) : cached_value_(static_cast<double>(value)) {}
 
-    auto as_double() const -> double {
+    [[nodiscard]] auto as_double() const -> double {
         if (cached_value_) {
             return *cached_value_;
         }
@@ -47,7 +47,7 @@ public:
         }
     }
 
-    auto as_int() const -> int {
+    [[nodiscard]] auto as_int() const -> int {
         // NOLINTNEXTLINE(readability-identifier-length)
         double d = as_double();
         if (d != static_cast<int>(d)) {
@@ -57,7 +57,7 @@ public:
         return static_cast<int>(d);
     }
 
-    auto as_long_long() const -> long long {
+    [[nodiscard]] auto as_long_long() const -> long long {
         // NOLINTNEXTLINE(readability-identifier-length)
         double d = as_double();
         if (d != static_cast<double>(static_cast<long long>(d))) {
@@ -68,7 +68,7 @@ public:
         return static_cast<long long>(d);
     }
 
-    auto as_string() const -> std::string {
+    [[nodiscard]] auto as_string() const -> std::string {
         if (original_repr_) {
             return *original_repr_;
         }
@@ -98,9 +98,9 @@ public:
         }
     }
 
-    auto has_original_repr() const -> bool { return original_repr_.has_value(); }
+    [[nodiscard]] auto has_original_repr() const -> bool { return original_repr_.has_value(); }
 
-    auto get_original_repr() const -> const std::string& {
+    [[nodiscard]] auto get_original_repr() const -> const std::string& {
         if (!original_repr_) {
             throw TypeException("LazyNumber has no original representation");
         }
@@ -118,7 +118,7 @@ public:
         }
     }
 
-    auto is_integer() const -> bool {
+    [[nodiscard]] auto is_integer() const -> bool {
         try {
             // NOLINTNEXTLINE(readability-identifier-length)
             double d = as_double();

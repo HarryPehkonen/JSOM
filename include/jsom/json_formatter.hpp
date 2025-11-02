@@ -62,31 +62,31 @@ private:
     // NOLINTBEGIN(readability-function-size)
     void format_string(std::ostringstream& oss, const std::string& str) const {
         oss << '"';
-        
+
         for (size_t i = 0; i < str.length(); ++i) {
             char c = str[i];
-            
+
             // Check for preserved Unicode escape sequences (\uXXXX)
             if (c == '\\' && i + 5 <= str.length() && str[i + 1] == 'u') {
                 bool is_valid_unicode_escape = true;
                 for (int j = 2; j < 6; ++j) {
                     char hex_char = str[i + j];
-                    if (!((hex_char >= '0' && hex_char <= '9') ||
-                          (hex_char >= 'A' && hex_char <= 'F') ||
-                          (hex_char >= 'a' && hex_char <= 'f'))) {
+                    if (!((hex_char >= '0' && hex_char <= '9')
+                          || (hex_char >= 'A' && hex_char <= 'F')
+                          || (hex_char >= 'a' && hex_char <= 'f'))) {
                         is_valid_unicode_escape = false;
                         break;
                     }
                 }
-                
+
                 if (is_valid_unicode_escape) {
                     // Preserve the Unicode escape sequence as-is
-                    oss << str.substr(i, 6);  // \uXXXX
+                    oss << str.substr(i, 6); // \uXXXX
                     i += 5; // Skip the next 5 characters (we'll increment by 1 in the loop)
                     continue;
                 }
             }
-            
+
             // Handle regular escape sequences and characters
             switch (c) {
             case '"':

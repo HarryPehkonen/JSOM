@@ -60,7 +60,7 @@ public:
                                  + " (path: " + error.json_pointer + "): " + error.message);
     }
 
-    auto get_document() const -> JsonDocument {
+    [[nodiscard]] auto get_document() const -> JsonDocument {
         if (!has_root_) {
             throw std::runtime_error("No document parsed");
         }
@@ -212,7 +212,7 @@ public:
                                  + error.message);
     }
 
-    auto get_result() const -> JsonDocument {
+    [[nodiscard]] auto get_result() const -> JsonDocument {
         if (!has_result_) {
             throw std::runtime_error("No document parsed");
         }
@@ -226,7 +226,8 @@ inline auto parse_document(const std::string& json) -> JsonDocument {
     return parser.parse(json);
 }
 
-inline auto parse_document(const std::string& json, const JsonParseOptions& options) -> JsonDocument {
+inline auto parse_document(const std::string& json, const JsonParseOptions& options)
+    -> JsonDocument {
     // Use fast parser with options for better performance
     FastParser parser(options);
     return parser.parse(json);
@@ -245,8 +246,7 @@ inline auto parse_document_streaming(const std::string& json) -> JsonDocument {
     events.on_enter_array = [&builder](const std::string& path) { builder.on_enter_array(path); };
     events.on_exit_container
         = [&builder](const std::string& path) { builder.on_exit_container(path); };
-    events.on_error
-        = [](const ParseError& error) { jsom::DocumentBuilder::on_error(error); };
+    events.on_error = [](const ParseError& error) { jsom::DocumentBuilder::on_error(error); };
 
     parser.set_events(events);
     parser.parse_string(json);

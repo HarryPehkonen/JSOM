@@ -107,8 +107,8 @@ public:
     explicit JsonDocument(double value)
         : type_(JsonType::Number), storage_(LazyNumber(value)), path_cache_(nullptr) {}
 
-    explicit JsonDocument(std::string value)
-        : type_(JsonType::String), storage_(std::move(value)), path_cache_(nullptr) {}
+    explicit JsonDocument(const std::string& value)
+        : type_(JsonType::String), storage_(value), path_cache_(nullptr) {}
 
     explicit JsonDocument(const char* value)
         : type_(JsonType::String), storage_(std::string(value)), path_cache_(nullptr) {}
@@ -137,8 +137,7 @@ public:
     // Template factory methods for converting containers to JsonDocument
     // Zero-overhead - converter is inlined by compiler
     template <typename T, typename Converter>
-    static auto from_map(const std::map<std::string, T>& map, Converter converter)
-        -> JsonDocument {
+    static auto from_map(const std::map<std::string, T>& map, Converter converter) -> JsonDocument {
         std::map<std::string, JsonDocument> result;
         for (const auto& [key, value] : map) {
             result.emplace(key, converter(value));
@@ -163,8 +162,7 @@ public:
         return from_map(map, [](const T& v) { return JsonDocument(v); });
     }
 
-    template <typename T>
-    static auto from_vector(const std::vector<T>& vec) -> JsonDocument {
+    template <typename T> static auto from_vector(const std::vector<T>& vec) -> JsonDocument {
         return from_vector(vec, [](const T& v) { return JsonDocument(v); });
     }
 

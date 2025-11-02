@@ -54,9 +54,8 @@ TEST(ErgonomicConstructionTest, FromMapWithConverter) {
     frequency_map["banana"] = 3;
     frequency_map["cherry"] = 7;
 
-    auto doc = JsonDocument::from_map(frequency_map, [](size_t v) {
-        return JsonDocument(static_cast<int>(v));
-    });
+    auto doc = JsonDocument::from_map(frequency_map,
+                                      [](size_t v) { return JsonDocument(static_cast<int>(v)); });
 
     ASSERT_TRUE(doc.is_object());
     EXPECT_EQ(doc["apple"].as<int>(), 5);
@@ -67,9 +66,8 @@ TEST(ErgonomicConstructionTest, FromMapWithConverter) {
 TEST(ErgonomicConstructionTest, FromVectorWithConverter) {
     std::vector<size_t> sizes = {100, 200, 300};
 
-    auto doc = JsonDocument::from_vector(sizes, [](size_t v) {
-        return JsonDocument(static_cast<int>(v));
-    });
+    auto doc = JsonDocument::from_vector(
+        sizes, [](size_t v) { return JsonDocument(static_cast<int>(v)); });
 
     ASSERT_TRUE(doc.is_array());
     EXPECT_EQ(doc[0].as<int>(), 100);
@@ -170,9 +168,8 @@ TEST(ErgonomicConstructionTest, ComplexNestedConstruction) {
 
     // Build nested structure using new factories
     std::map<std::string, JsonDocument> analysis;
-    analysis["frequencies"] = JsonDocument::from_map(frequency_map, [](size_t v) {
-        return JsonDocument(static_cast<int>(v));
-    });
+    analysis["frequencies"] = JsonDocument::from_map(
+        frequency_map, [](size_t v) { return JsonDocument(static_cast<int>(v)); });
     analysis["averages"] = JsonDocument::from_map(averages);
 
     JsonDocument doc(std::move(analysis));

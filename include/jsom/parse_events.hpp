@@ -12,8 +12,8 @@ struct ParseError {
     std::string message;
     std::string json_pointer;
 
-    ParseError(std::size_t pos, std::string msg, std::string ptr = "")
-        : position(pos), message(std::move(msg)), json_pointer(std::move(ptr)) {}
+    ParseError(std::size_t pos, std::string msg, const std::string& ptr = "")
+        : position(pos), message(std::move(msg)), json_pointer(ptr) {}
 };
 
 class ParseEvents {

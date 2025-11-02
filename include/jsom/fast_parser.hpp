@@ -46,10 +46,10 @@ private:
             return c - '0';
         }
         if (c >= 'A' && c <= 'F') {
-            return c - 'A' + 10;
+            return c - 'A' + unicode_constants::HEX_LETTER_OFFSET;
         }
         if (c >= 'a' && c <= 'f') {
-            return c - 'a' + 10;
+            return c - 'a' + unicode_constants::HEX_LETTER_OFFSET;
         }
         return -1; // Invalid hex digit
     }
@@ -64,7 +64,8 @@ private:
             char c = advance();
             int hex_val = hex_to_int(c);
             if (hex_val == -1) {
-                throw std::runtime_error("Invalid hex digit in Unicode escape: " + std::string(1, c));
+                throw std::runtime_error("Invalid hex digit in Unicode escape: "
+                                         + std::string(1, c));
             }
             codepoint = (codepoint << 4) | static_cast<uint16_t>(hex_val);
         }
@@ -72,19 +73,19 @@ private:
     }
 
     void append_utf8(std::string& str, uint32_t codepoint) {
-        if (codepoint <= 0x7F) {
+        if (codepoint <= unicode_constants::UTF8_1_BYTE_MAX) {
             // 1-byte UTF-8
             str += static_cast<char>(codepoint);
-        } else if (codepoint <= 0x7FF) {
+        } else if (codepoint <= unicode_constants::UTF8_2_BYTE_MAX) {
             // 2-byte UTF-8
             str += static_cast<char>(0xC0 | (codepoint >> 6));
             str += static_cast<char>(0x80 | (codepoint & 0x3F));
-        } else if (codepoint <= 0xFFFF) {
+        } else if (codepoint <= unicode_constants::UTF8_3_BYTE_MAX) {
             // 3-byte UTF-8
             str += static_cast<char>(0xE0 | (codepoint >> 12));
             str += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
             str += static_cast<char>(0x80 | (codepoint & 0x3F));
-        } else if (codepoint <= 0x10FFFF) {
+        } else if (codepoint <= unicode_constants::UTF8_MAX_CODEPOINT) {
             // 4-byte UTF-8
             str += static_cast<char>(0xF0 | (codepoint >> 18));
             str += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
@@ -154,18 +155,24 @@ private:
                     if (options_.convert_unicode_escapes) {
                         // Convert Unicode escape to UTF-8
                         uint16_t codepoint = parse_unicode_escape();
-                        
-                        // Check for surrogate pairs (high surrogate: 0xD800-0xDBFF)
-                        if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+
+                        // Check for surrogate pairs (high surrogate)
+                        if (codepoint >= unicode_constants::HIGH_SURROGATE_START
+                            && codepoint <= unicode_constants::HIGH_SURROGATE_END) {
                             // High surrogate - look for low surrogate
                             if (pos_ + 1 < size_ && data_[pos_] == '\\' && data_[pos_ + 1] == 'u') {
                                 pos_ += 2; // Skip \u
                                 uint16_t low_surrogate = parse_unicode_escape();
-                                if (low_surrogate >= 0xDC00 && low_surrogate <= 0xDFFF) {
+                                if (low_surrogate >= unicode_constants::LOW_SURROGATE_START
+                                    && low_surrogate <= unicode_constants::LOW_SURROGATE_END) {
                                     // Valid surrogate pair - convert to full codepoint
-                                    uint32_t full_codepoint = 0x10000 + 
-                                        ((static_cast<uint32_t>(codepoint) & 0x3FF) << 10) +
-                                        (static_cast<uint32_t>(low_surrogate) & 0x3FF);
+                                    uint32_t full_codepoint
+                                        = unicode_constants::SURROGATE_OFFSET
+                                          + ((static_cast<uint32_t>(codepoint)
+                                              & unicode_constants::SURROGATE_MASK)
+                                             << 10)
+                                          + (static_cast<uint32_t>(low_surrogate)
+                                             & unicode_constants::SURROGATE_MASK);
                                     append_utf8(string_buffer_, full_codepoint);
                                 } else {
                                     throw std::runtime_error("Invalid low surrogate pair");
@@ -173,7 +180,8 @@ private:
                             } else {
                                 throw std::runtime_error("Incomplete surrogate pair");
                             }
-                        } else if (codepoint >= 0xDC00 && codepoint <= 0xDFFF) {
+                        } else if (codepoint >= unicode_constants::LOW_SURROGATE_START
+                                   && codepoint <= unicode_constants::LOW_SURROGATE_END) {
                             throw std::runtime_error("Unexpected low surrogate");
                         } else {
                             // Regular codepoint

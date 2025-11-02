@@ -31,11 +31,11 @@ public:
  * Implementation of parsing presets.
  */
 inline const JsonParseOptions ParsePresets::Default = {
-    false  // convert_unicode_escapes
+    false // convert_unicode_escapes
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
-    true   // convert_unicode_escapes
+    true // convert_unicode_escapes
 };
 
 } // namespace jsom

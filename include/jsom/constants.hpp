@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace jsom {
@@ -111,6 +112,28 @@ constexpr int HEX_WIDTH = 4;                     // Width for hex formatting (\u
 constexpr int INDENT_MULTIPLIER = 2;             // Spaces per indent level in basic formatting
 constexpr int UNICODE_BUFFER_SIZE = 7;           // Buffer size for "\\uXXXX" + null terminator
 } // namespace character_constants
+
+// Unicode Encoding Constants (RFC 3629 UTF-8, RFC 2781 UTF-16)
+namespace unicode_constants {
+// UTF-8 codepoint boundaries (RFC 3629)
+constexpr uint32_t UTF8_1_BYTE_MAX = 0x7F;        // 127 - ASCII range
+constexpr uint32_t UTF8_2_BYTE_MAX = 0x7FF;       // 2047
+constexpr uint32_t UTF8_3_BYTE_MAX = 0xFFFF;      // 65535 - BMP (Basic Multilingual Plane)
+constexpr uint32_t UTF8_MAX_CODEPOINT = 0x10FFFF; // Maximum valid Unicode codepoint
+
+// UTF-16 surrogate pair ranges (RFC 2781)
+constexpr uint16_t HIGH_SURROGATE_START = 0xD800;
+constexpr uint16_t HIGH_SURROGATE_END = 0xDBFF;
+constexpr uint16_t LOW_SURROGATE_START = 0xDC00;
+constexpr uint16_t LOW_SURROGATE_END = 0xDFFF;
+
+// Surrogate pair conversion constants
+constexpr uint32_t SURROGATE_OFFSET = 0x10000;
+constexpr uint32_t SURROGATE_MASK = 0x3FF; // 10-bit mask for surrogate data
+
+// Hex digit conversion
+constexpr int HEX_LETTER_OFFSET = 10; // A=10, B=11, ..., F=15
+} // namespace unicode_constants
 
 // JSON Pointer Constants
 namespace pointer_constants {
