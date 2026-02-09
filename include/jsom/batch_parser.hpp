@@ -44,7 +44,7 @@ public:
     }
 
     void on_enter_array(const std::string& path) {
-        JsonDocument arr(std::initializer_list<JsonDocument>{});
+        JsonDocument arr(std::vector<JsonDocument>{});
         if (path.empty()) {
             root_ = arr;
             has_root_ = true;
@@ -102,7 +102,7 @@ private:
                     if (obj_map.find(segment) == obj_map.end()) {
                         if (i + 1 < segments.size() && is_numeric(segments[i + 1])) {
                             current->set(segment,
-                                         JsonDocument(std::initializer_list<JsonDocument>{}));
+                                         JsonDocument(std::vector<JsonDocument>{}));
                         } else {
                             current->set(
                                 segment,
@@ -200,7 +200,7 @@ public:
 
     void on_enter_array(const std::string& path) {
         if (path.empty()) {
-            result_ = JsonDocument(std::initializer_list<JsonDocument>{});
+            result_ = JsonDocument(std::vector<JsonDocument>{});
             has_result_ = true;
         }
     }

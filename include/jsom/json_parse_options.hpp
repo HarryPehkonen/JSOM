@@ -13,6 +13,11 @@ struct JsonParseOptions {
     /// When false (default): Preserves \uXXXX as literal strings for round-trip fidelity
     /// When true: Converts \uXXXX sequences to their corresponding UTF-8 characters
     bool convert_unicode_escapes = false;
+
+    /// Allow C/C++-style comments in JSON input
+    /// When false (default): Strict JSON parsing, comments are syntax errors
+    /// When true: Skips // line comments and /* block comments */
+    bool allow_comments = false;
 };
 
 /**
@@ -25,17 +30,27 @@ public:
 
     /// Unicode parsing - converts Unicode escapes to actual UTF-8 characters
     static const JsonParseOptions Unicode;
+
+    /// Comment-tolerant parsing - allows // and /* */ comments
+    static const JsonParseOptions Comments;
 };
 
 /**
  * Implementation of parsing presets.
  */
 inline const JsonParseOptions ParsePresets::Default = {
-    false // convert_unicode_escapes
+    false, // convert_unicode_escapes
+    false  // allow_comments
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
-    true // convert_unicode_escapes
+    true, // convert_unicode_escapes
+    false // allow_comments
+};
+
+inline const JsonParseOptions ParsePresets::Comments = {
+    false, // convert_unicode_escapes
+    true   // allow_comments
 };
 
 } // namespace jsom

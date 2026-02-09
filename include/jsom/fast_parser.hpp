@@ -22,8 +22,34 @@ private:
     std::string number_buffer_;
 
     void skip_whitespace() {
-        while (pos_ < size_ && (std::isspace(data_[pos_]) != 0)) {
-            ++pos_;
+        while (pos_ < size_) {
+            if (std::isspace(data_[pos_]) != 0) {
+                ++pos_;
+            } else if (options_.allow_comments && pos_ + 1 < size_ && data_[pos_] == '/') {
+                if (data_[pos_ + 1] == '/') {
+                    // Line comment: skip to end of line
+                    pos_ += 2;
+                    while (pos_ < size_ && data_[pos_] != '\n') {
+                        ++pos_;
+                    }
+                } else if (data_[pos_ + 1] == '*') {
+                    // Block comment: skip to */
+                    pos_ += 2;
+                    while (pos_ + 1 < size_
+                           && !(data_[pos_] == '*' && data_[pos_ + 1] == '/')) {
+                        ++pos_;
+                    }
+                    if (pos_ + 1 < size_) {
+                        pos_ += 2; // skip */
+                    } else {
+                        throw std::runtime_error("Unterminated block comment");
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
     }
 
@@ -323,7 +349,7 @@ private:
         skip_whitespace();
 
         // Create the final array immediately
-        JsonDocument result(std::initializer_list<JsonDocument>{});
+        JsonDocument result(std::vector<JsonDocument>{});
 
         if (peek() == ']') {
             advance();

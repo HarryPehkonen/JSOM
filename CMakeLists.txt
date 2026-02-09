@@ -112,6 +112,15 @@ add_executable(jsom_tests
 
     # Cache invalidation tests
     tests/test_cache_invalidation.cpp    # Validates set()/push_back() invalidate path cache
+
+    # Iteration tests
+    tests/test_iteration.cpp             # Range-for, items(), keys()
+
+    # Comparison operator tests
+    tests/test_comparison.cpp            # Equality and ordering operators
+
+    # Comment-tolerant parsing tests
+    tests/test_comments.cpp              # // and /* */ comment support
 )
 
 target_link_libraries(jsom_tests

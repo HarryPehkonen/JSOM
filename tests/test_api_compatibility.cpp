@@ -59,16 +59,16 @@ TEST(APICompatibilityTest, ContainerAccess) {
 }
 
 TEST(APICompatibilityTest, Construction) {
-    JsonDocument doc{{"name", JsonDocument("John Doe")},
+    JsonDocument doc{{"name", "John Doe"},
                      // NOLINTNEXTLINE(readability-magic-numbers)
-                     {"age", JsonDocument(30)},
+                     {"age", 30},
                      // NOLINTNEXTLINE(readability-magic-numbers)
-                     {"salary", JsonDocument(75000.50)},
-                     {"active", JsonDocument(true)},
-                     {"tags", JsonDocument{JsonDocument("developer"), JsonDocument("senior")}},
-                     {"address", JsonDocument{{"street", JsonDocument("123 Main St")},
+                     {"salary", 75000.50},
+                     {"active", true},
+                     {"tags", JsonDocument(std::vector<JsonDocument>{"developer", "senior"})},
+                     {"address", JsonDocument{{"street", "123 Main St"},
                                               // NOLINTNEXTLINE(readability-magic-numbers)
-                                              {"zip", JsonDocument(12345)}}}};
+                                              {"zip", 12345}}}};
 
     EXPECT_EQ(doc["name"].as<std::string>(), "John Doe");
     EXPECT_EQ(doc["age"].as<int>(), 30);

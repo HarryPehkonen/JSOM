@@ -57,7 +57,7 @@ TEST(FormatPreservationTest, ModifiedValueUseComputedFormat) {
     auto doc = parse_document(R"({"value": "1.0"})");
 
     // NOLINTNEXTLINE(readability-magic-numbers)
-    JsonDocument modified{{"value", JsonDocument(2.5)}};
+    JsonDocument modified{{"value", 2.5}};
     std::string output = modified.to_json();
 
     EXPECT_TRUE(output.find("2.5") != std::string::npos);

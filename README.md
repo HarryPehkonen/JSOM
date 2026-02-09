@@ -11,6 +11,10 @@ A fast, modern JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, 
 - **Modern C++** - Safe, clean C++17 implementation using std::variant and RAII, compatible with C++20+
 - **Zero dependencies** - Self-contained with optional benchmarking against nlohmann/json
 - **Comprehensive CLI** - Full-featured command-line tool for JSON operations
+- **Implicit construction** - Natural syntax: `JsonDocument doc = 42;`, clean object init-lists
+- **Iteration support** - Range-for on arrays, structured bindings on objects via `items()`
+- **Comparison operators** - Full set of `==`, `!=`, `<`, `>`, `<=`, `>=` with deep structural comparison
+- **Comment-tolerant parsing** - Optional `//` and `/* */` comment support for config files
 
 ## Performance
 
@@ -144,8 +148,12 @@ JsonDocument(static_cast<int64_t>(val)) // May cause overload issues
 ./build/jsom format --preset=config settings.json
 ./build/jsom format --indent=4 --max-width=80 data.json
 
+# Format JSON with comments (e.g., config files)
+./build/jsom format --comments config.jsonc
+
 # Validate JSON files
 ./build/jsom validate file1.json file2.json
+./build/jsom validate --comments config.jsonc
 
 # JSON Pointer operations (RFC 6901)
 ./build/jsom pointer get "/users/0/name" data.json
@@ -188,6 +196,35 @@ if (doc.is_object()) {
 }
 ```
 
+#### Constructing JSON Documents
+
+Implicit construction from primitives enables clean, natural syntax:
+
+```cpp
+// Implicit construction from primitives
+JsonDocument name = "Alice";
+JsonDocument age = 30;
+JsonDocument pi = 3.14;
+JsonDocument active = true;
+JsonDocument nothing = nullptr;
+
+// Object initializer-list syntax (no wrappers needed)
+JsonDocument user{{"name", "Alice"}, {"age", 30}, {"active", true}};
+
+// Implicit conversion works in set() and push_back() too
+auto obj = JsonDocument::make_object();
+obj.set("name", "Bob");
+obj.set("score", 95.5);
+
+auto arr = JsonDocument::make_array();
+arr.push_back(1);
+arr.push_back("hello");
+arr.push_back(true);
+
+// Arrays via vector constructor
+auto numbers = JsonDocument(std::vector<JsonDocument>{1, 2, 3});
+```
+
 #### Building JSON from C++ Containers
 
 JSOM provides ergonomic ways to construct JSON documents from standard C++ containers:
@@ -210,17 +247,9 @@ auto doc = JsonDocument::from_map(frequency_map, [](size_t v) {
 
 // Direct construction from JsonDocument containers (zero-copy move)
 std::map<std::string, JsonDocument> obj_map;
-obj_map["name"] = JsonDocument("Alice");
-obj_map["age"] = JsonDocument(30);
+obj_map["name"] = "Alice";
+obj_map["age"] = 30;
 JsonDocument doc(std::move(obj_map));
-
-// Complex nested structures made easy
-std::map<std::string, JsonDocument> analysis;
-analysis["frequencies"] = JsonDocument::from_map(freq_counts, [](size_t v) {
-    return JsonDocument(static_cast<int>(v));
-});
-analysis["averages"] = JsonDocument::from_map(avg_values);
-JsonDocument report(std::move(analysis));
 ```
 
 #### Creating Empty Documents
@@ -235,7 +264,7 @@ auto obj = JsonDocument::make_object();
 
 ```cpp
 // Reference accessors (no copy, const access to underlying containers)
-const auto& items = doc.as_array();    // throws if not array
+const auto& elems = doc.as_array();    // throws if not array
 const auto& fields = doc.as_object();  // throws if not object
 
 // Size and emptiness
@@ -244,22 +273,63 @@ doc.empty();      // true for null, empty arrays, and empty objects; throws on p
 
 // Key lookup
 doc.contains("name");  // true if object has key; throws on non-objects
+doc.keys();             // returns vector<string> of object keys
+```
+
+#### Iterating Documents
+
+```cpp
+// Range-for on arrays
+auto arr = JsonDocument(std::vector<JsonDocument>{1, 2, 3});
+for (const auto& elem : arr) {
+    std::cout << elem.as<int>() << "\n";
+}
+
+// Structured bindings on objects via items()
+JsonDocument config{{"host", "localhost"}, {"port", 8080}};
+for (const auto& [key, value] : config.items()) {
+    std::cout << key << ": " << value.to_json() << "\n";
+}
+
+// Mutable iteration
+for (auto& [key, value] : config.items()) {
+    value = "overwritten";
+}
+```
+
+#### Comparing Documents
+
+```cpp
+// Deep structural equality
+JsonDocument a{{"x", 1}, {"y", 2}};
+JsonDocument b{{"x", 1}, {"y", 2}};
+assert(a == b);
+
+// Implicit conversion in comparisons
+JsonDocument age = 30;
+assert(age == 30);
+assert(age < 100);
+assert(age != "thirty");
+
+// Total ordering (Null < Bool < Number < String < Object < Array)
+assert(JsonDocument() < JsonDocument(false));
+assert(JsonDocument(0) < JsonDocument("zero"));
 ```
 
 #### Mutating Documents
 
 ```cpp
-// Set object keys (overwrites existing keys)
-doc.set("name", JsonDocument("Alice"));
-doc.set("age", JsonDocument(30));
+// Set object keys (implicit conversion, no wrapper needed)
+doc.set("name", "Alice");
+doc.set("age", 30);
 
 // Set array elements by index (resizes if needed)
-doc.set(0, JsonDocument("replaced"));
+doc.set(0, "replaced");
 
 // Append to arrays
 auto arr = JsonDocument::make_array();
-arr.push_back(JsonDocument(1));
-arr.push_back(JsonDocument("two"));
+arr.push_back(1);
+arr.push_back("two");
 ```
 
 #### JSON Pointer Operations
@@ -490,10 +560,34 @@ auto custom_doc = parse_document(json_string, options);
 
 Regular UTF-8 characters in JSON strings work normally without escaping in both modes.
 
+## Comment-Tolerant Parsing
+
+JSOM supports optional `//` line comments and `/* */` block comments for parsing configuration files, JSONC, and other commented JSON formats. Comments are **disabled by default** for strict JSON compliance.
+
+```cpp
+// Enable via preset
+auto doc = parse_document(json, ParsePresets::Comments);
+
+// Or via options
+JsonParseOptions opts;
+opts.allow_comments = true;
+auto doc = parse_document(R"({
+    // Database configuration
+    "host": "localhost",  /* default host */
+    "port": 5432
+})", opts);
+```
+
+CLI support:
+```bash
+./build/jsom format --comments config.jsonc
+./build/jsom validate --comments config.jsonc
+```
+
 ## Testing
 
 ```bash
-# Run all tests (111 test cases)
+# Run all tests (161 test cases)
 ./build/jsom_tests
 
 # Run specific test categories

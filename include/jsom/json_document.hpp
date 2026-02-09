@@ -98,27 +98,34 @@ public:
     // Move assignment - defined in implementation file
     auto operator=(JsonDocument&& other) noexcept -> JsonDocument&;
 
-    explicit JsonDocument(bool value)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(bool value)
         : type_(JsonType::Boolean), storage_(value), path_cache_(nullptr) {}
 
-    explicit JsonDocument(int value)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(int value)
         : type_(JsonType::Number), storage_(LazyNumber(value)), path_cache_(nullptr) {}
 
-    explicit JsonDocument(double value)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(double value)
         : type_(JsonType::Number), storage_(LazyNumber(value)), path_cache_(nullptr) {}
 
-    explicit JsonDocument(const std::string& value)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(const std::string& value)
         : type_(JsonType::String), storage_(value), path_cache_(nullptr) {}
 
-    explicit JsonDocument(const char* value)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(const char* value)
         : type_(JsonType::String), storage_(std::string(value)), path_cache_(nullptr) {}
+
+    // Prevent nullptr from calling const char* overload (would be UB via std::string(nullptr))
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    JsonDocument(std::nullptr_t)
+        : type_(JsonType::Null), storage_(std::monostate{}), path_cache_(nullptr) {}
 
     JsonDocument(std::initializer_list<std::pair<const std::string, JsonDocument>> init)
         : type_(JsonType::Object), storage_(std::map<std::string, JsonDocument>(init)),
           path_cache_(nullptr) {}
-
-    JsonDocument(std::initializer_list<JsonDocument> init)
-        : type_(JsonType::Array), storage_(std::vector<JsonDocument>(init)), path_cache_(nullptr) {}
 
     // Direct container constructors - efficient when you already have JsonDocument containers
     explicit JsonDocument(std::map<std::string, JsonDocument> obj)
@@ -218,6 +225,52 @@ public:
     auto as_object() const -> const std::map<std::string, JsonDocument>& {
         validate_type(JsonType::Object);
         return std::get<std::map<std::string, JsonDocument>>(storage_);
+    }
+
+    // Array iteration (range-for support)
+    using iterator = std::vector<JsonDocument>::iterator;
+    using const_iterator = std::vector<JsonDocument>::const_iterator;
+
+    auto begin() -> iterator {
+        validate_type(JsonType::Array);
+        return std::get<std::vector<JsonDocument>>(storage_).begin();
+    }
+
+    auto end() -> iterator {
+        validate_type(JsonType::Array);
+        return std::get<std::vector<JsonDocument>>(storage_).end();
+    }
+
+    auto begin() const -> const_iterator {
+        validate_type(JsonType::Array);
+        return std::get<std::vector<JsonDocument>>(storage_).begin();
+    }
+
+    auto end() const -> const_iterator {
+        validate_type(JsonType::Array);
+        return std::get<std::vector<JsonDocument>>(storage_).end();
+    }
+
+    // Object iteration via items() (structured binding support)
+    auto items() -> std::map<std::string, JsonDocument>& {
+        validate_type(JsonType::Object);
+        return std::get<std::map<std::string, JsonDocument>>(storage_);
+    }
+
+    auto items() const -> const std::map<std::string, JsonDocument>& {
+        validate_type(JsonType::Object);
+        return std::get<std::map<std::string, JsonDocument>>(storage_);
+    }
+
+    auto keys() const -> std::vector<std::string> {
+        validate_type(JsonType::Object);
+        const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
+        std::vector<std::string> result;
+        result.reserve(obj.size());
+        for (const auto& entry : obj) {
+            result.push_back(entry.first);
+        }
+        return result;
     }
 
     auto size() const -> std::size_t {
@@ -738,6 +791,74 @@ public:
         }
     }
     // NOLINTEND(readability-function-size)
+
+    // Comparison operators
+    friend auto operator==(const JsonDocument& lhs, const JsonDocument& rhs) -> bool;
+    friend auto operator<(const JsonDocument& lhs, const JsonDocument& rhs) -> bool;
 };
+
+// NOLINTBEGIN(readability-function-size)
+inline auto operator==(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    if (lhs.type_ != rhs.type_) {
+        return false;
+    }
+    switch (lhs.type_) {
+    case JsonType::Null:
+        return true;
+    case JsonType::Boolean:
+        return std::get<bool>(lhs.storage_) == std::get<bool>(rhs.storage_);
+    case JsonType::Number:
+        return std::get<LazyNumber>(lhs.storage_) == std::get<LazyNumber>(rhs.storage_);
+    case JsonType::String:
+        return std::get<std::string>(lhs.storage_) == std::get<std::string>(rhs.storage_);
+    case JsonType::Array:
+        return std::get<std::vector<JsonDocument>>(lhs.storage_)
+               == std::get<std::vector<JsonDocument>>(rhs.storage_);
+    case JsonType::Object:
+        return std::get<std::map<std::string, JsonDocument>>(lhs.storage_)
+               == std::get<std::map<std::string, JsonDocument>>(rhs.storage_);
+    }
+    return false;
+}
+
+inline auto operator!=(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    return !(lhs == rhs);
+}
+
+inline auto operator<(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    if (lhs.type_ != rhs.type_) {
+        return static_cast<uint8_t>(lhs.type_) < static_cast<uint8_t>(rhs.type_);
+    }
+    switch (lhs.type_) {
+    case JsonType::Null:
+        return false; // null == null, never less
+    case JsonType::Boolean:
+        return !std::get<bool>(lhs.storage_) && std::get<bool>(rhs.storage_); // false < true
+    case JsonType::Number:
+        return std::get<LazyNumber>(lhs.storage_) < std::get<LazyNumber>(rhs.storage_);
+    case JsonType::String:
+        return std::get<std::string>(lhs.storage_) < std::get<std::string>(rhs.storage_);
+    case JsonType::Array:
+        return std::get<std::vector<JsonDocument>>(lhs.storage_)
+               < std::get<std::vector<JsonDocument>>(rhs.storage_);
+    case JsonType::Object:
+        return std::get<std::map<std::string, JsonDocument>>(lhs.storage_)
+               < std::get<std::map<std::string, JsonDocument>>(rhs.storage_);
+    }
+    return false;
+}
+// NOLINTEND(readability-function-size)
+
+inline auto operator>(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    return rhs < lhs;
+}
+
+inline auto operator<=(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    return !(rhs < lhs);
+}
+
+inline auto operator>=(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
+    return !(lhs < rhs);
+}
 
 } // namespace jsom

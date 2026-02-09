@@ -178,6 +178,7 @@ auto format_command(const std::vector<std::string>& args) -> int {
     const std::string MAX_WIDTH_SWITCH = "--max-width=";
     const std::string COLON_SPACING_SWITCH = "--colon-spacing=";
     jsom::JsonFormatOptions options = jsom::FormatPresets::Pretty;  // Default to pretty
+    jsom::JsonParseOptions parse_options;
     std::string input_file;
     bool dump_settings = false;
     std::string preset_name = "pretty";
@@ -213,6 +214,7 @@ CUSTOM OPTIONS:
     --trailing-comma    Add trailing commas (non-standard)
     --intelligent-wrap  Enable intelligent array wrapping (multiple elements per line)
     --no-intelligent-wrap  Disable intelligent array wrapping
+    --comments          Allow // and /* */ comments in input
 
 INSPECTION:
     --dump              Show all settings for the selected preset
@@ -280,6 +282,8 @@ EXAMPLES:
             options.intelligent_wrapping = true;
         } else if (arg == "--no-intelligent-wrap") {
             options.intelligent_wrapping = false;
+        } else if (arg == "--comments") {
+            parse_options.allow_comments = true;
         } else if (arg == "--dump") {
             dump_settings = true;
         } else if (arg[0] != '-') {
@@ -299,11 +303,11 @@ EXAMPLES:
     try {
         // Read JSON
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
-        
+
         // Parse and format
-        auto doc = parse_document(json);
+        auto doc = parse_document(json, parse_options);
         std::cout << doc.to_json(options) << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -314,30 +318,37 @@ EXAMPLES:
 // Validate command
 auto validate_command(const std::vector<std::string>& args) -> int {
     if (args.size() < 3) {
-        std::cerr << "Usage: jsom validate <file1> [file2] ...\n";
+        std::cerr << "Usage: jsom validate [--comments] <file1> [file2] ...\n";
         return 1;
     }
-    
+
     bool all_valid = true;
-    
+    jsom::JsonParseOptions parse_options;
+
     for (size_t i = cli_constants::FIRST_OPTION_INDEX; i < args.size(); ++i) {
         const auto& filename = args[i];
         if (filename == "--help") {
             std::cout << "Validate JSON files\n\n";
-            std::cout << "USAGE: jsom validate <file1> [file2] ...\n";
+            std::cout << "USAGE: jsom validate [--comments] <file1> [file2] ...\n";
+            std::cout << "\nOPTIONS:\n";
+            std::cout << "    --comments    Allow // and /* */ comments\n";
             return 0;
         }
-        
+        if (filename == "--comments") {
+            parse_options.allow_comments = true;
+            continue;
+        }
+
         try {
             std::string json = read_file(filename);
-            parse_document(json);
+            parse_document(json, parse_options);
             std::cout << filename << ": Valid JSON" << '\n';
         } catch (const std::exception& e) {
             std::cerr << filename << ": Invalid JSON - " << e.what() << '\n';
             all_valid = false;
         }
     }
-    
+
     return all_valid ? 0 : 1;
 }
 

@@ -118,6 +118,10 @@ public:
         }
     }
 
+    auto operator<(const LazyNumber& other) const -> bool {
+        return as_double() < other.as_double();
+    }
+
     [[nodiscard]] auto is_integer() const -> bool {
         try {
             // NOLINTNEXTLINE(readability-identifier-length)
