@@ -102,3 +102,36 @@ TEST(CacheInvalidationTest, NestedMutationViaSetAt) {
     EXPECT_EQ(doc.at("/users/0/score").as<int>(), 150);
     EXPECT_EQ(doc.at("/users/1/score").as<int>(), 200);
 }
+
+TEST(CacheInvalidationTest, ChildPushBackInvalidatesRootCache) {
+    // This is the critical scenario: root cache holds pointers into a child
+    // array's vector. push_back on the child can reallocate that vector,
+    // making the root's cached pointers dangling. The global mutation epoch
+    // causes the root's cache to discard stale entries.
+    auto doc = FastParser().parse(R"({"items": [1, 2, 3]})");
+
+    // Populate root cache with pointers into the items vector
+    EXPECT_EQ(doc.at("/items/0").as<int>(), 1);
+    EXPECT_EQ(doc.at("/items/2").as<int>(), 3);
+
+    // Mutate child array directly — may reallocate the vector
+    doc["items"].push_back(JsonDocument(4));
+
+    // Root cache must detect the epoch change and re-navigate safely
+    EXPECT_EQ(doc.at("/items/0").as<int>(), 1);
+    EXPECT_EQ(doc.at("/items/2").as<int>(), 3);
+    EXPECT_EQ(doc.at("/items/3").as<int>(), 4);
+}
+
+TEST(CacheInvalidationTest, ChildSetInvalidatesRootCache) {
+    auto doc = FastParser().parse(R"({"data": {"x": 1}})");
+
+    // Populate root cache
+    EXPECT_EQ(doc.at("/data/x").as<int>(), 1);
+
+    // Mutate child object directly
+    doc["data"].set("x", JsonDocument(99));
+
+    // Root cache must detect the epoch change
+    EXPECT_EQ(doc.at("/data/x").as<int>(), 99);
+}

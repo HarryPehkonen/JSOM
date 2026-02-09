@@ -283,6 +283,10 @@ void JsonDocument::clear_path_cache() const {
 }
 
 void JsonDocument::invalidate_cache() {
+    // Always notify the global epoch, even if this document has no cache.
+    // A parent document's cache may hold pointers into our storage that
+    // become dangling after reallocation (e.g. vector::push_back).
+    PathCache::notify_mutation();
     if (path_cache_ != nullptr) {
         path_cache_->clear();
     }

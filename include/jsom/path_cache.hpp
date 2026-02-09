@@ -32,7 +32,14 @@ struct PathCacheEntry {
     }
 };
 
-// Multi-level path cache with prefix optimization
+// Multi-level path cache with prefix optimization.
+//
+// SAFETY: The cache stores raw JsonDocument* pointers obtained during navigation.
+// These pointers become dangling if the underlying storage is reallocated (e.g. by
+// vector::push_back or vector::resize on an array). A global mutation epoch detects
+// this: any JsonDocument mutation increments the epoch, and cache lookups that find
+// an epoch mismatch discard stale entries and re-navigate. This may cause false-positive
+// cache misses when unrelated documents are mutated, but prevents use-after-free.
 class PathCache {
 private:
     // Level 1: Exact path cache (LRU)
@@ -45,6 +52,13 @@ private:
     // Level 3: Recent prefixes for locality optimization
     mutable std::vector<std::string> recent_prefixes_;
 
+    // Epoch at which this cache's entries were last validated
+    mutable uint64_t cached_epoch_ = 0;
+
+    // Global mutation epoch — incremented by any JsonDocument mutation.
+    // Not thread-safe; JSOM documents are not intended for concurrent access.
+    static inline uint64_t s_mutation_epoch_ = 0;
+
     // Configuration
     static constexpr size_t MAX_EXACT_CACHE_SIZE = cache_constants::MAX_EXACT_CACHE_SIZE;
     static constexpr size_t MAX_PREFIX_CACHE_SIZE = cache_constants::MAX_PREFIX_CACHE_SIZE;
@@ -52,15 +66,28 @@ private:
     static constexpr auto MAX_PREFIX_AGE
         = std::chrono::minutes(cache_constants::MAX_PREFIX_AGE_MINUTES);
 
+    // If the global epoch has advanced past our cached epoch, all entries are
+    // potentially stale. Clear everything and resync.
+    void check_epoch() const {
+        if (cached_epoch_ != s_mutation_epoch_) {
+            clear();
+            cached_epoch_ = s_mutation_epoch_;
+        }
+    }
+
 public:
-    PathCache() {
+    PathCache() : cached_epoch_(s_mutation_epoch_) {
         exact_cache_.reserve(MAX_EXACT_CACHE_SIZE);
         prefix_cache_.reserve(MAX_PREFIX_CACHE_SIZE);
         recent_prefixes_.reserve(MAX_RECENT_PREFIXES);
     }
 
+    // Called by JsonDocument::invalidate_cache() on every structural mutation.
+    static void notify_mutation() { ++s_mutation_epoch_; }
+
     // Get exact path from cache
     auto get_exact(const std::string& path) const -> JsonDocument* {
+        check_epoch();
         // NOLINTNEXTLINE(readability-identifier-length)
         auto it = exact_cache_.find(path);
         if (it != exact_cache_.end()) {
@@ -79,6 +106,7 @@ public:
 
     // Cache exact path
     void put_exact(const std::string& path, JsonDocument* doc) const {
+        check_epoch();
         if (exact_cache_.size() >= MAX_EXACT_CACHE_SIZE) {
             evict_exact_lru();
         }
@@ -90,6 +118,7 @@ public:
     // Find best cached prefix
     // NOLINTBEGIN(readability-function-size)
     auto find_best_prefix(const std::string& path) const -> std::pair<JsonDocument*, std::string> {
+        check_epoch();
         // First try recent prefixes for locality optimization
         for (const auto& prefix : recent_prefixes_) {
             if (JsonPointer::is_prefix(prefix, path)) {

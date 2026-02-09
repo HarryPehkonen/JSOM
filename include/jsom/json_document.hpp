@@ -249,6 +249,17 @@ public:
         return obj.find(key) != obj.end();
     }
 
+    // Mutation methods: set(), push_back()
+    //
+    // These invalidate the path cache (both this document's and the global epoch)
+    // so that any ancestor's cache will detect the change and re-navigate.
+    //
+    // References and pointers obtained from operator[], at(), as_array(), or
+    // as_object() follow standard C++ container rules: any mutation that causes
+    // reallocation (push_back, set with resize on arrays) invalidates them.
+    // Prefer set_at()/remove_at() from the root document for safe structural
+    // changes when using JSON Pointer navigation.
+
     void push_back(const JsonDocument& value) {
         validate_type(JsonType::Array);
         std::get<std::vector<JsonDocument>>(storage_).push_back(value);
