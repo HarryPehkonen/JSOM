@@ -223,6 +223,17 @@ analysis["averages"] = JsonDocument::from_map(avg_values);
 JsonDocument report(std::move(analysis));
 ```
 
+#### Mutating Documents
+
+```cpp
+// Set object keys
+doc.set("name", JsonDocument("Alice"));
+doc.set("age", JsonDocument(30));
+
+// Set array elements by index (resizes if needed)
+doc.set(0, JsonDocument("replaced"));
+```
+
 #### JSON Pointer Operations
 ```cpp
 // JSON Pointer operations
