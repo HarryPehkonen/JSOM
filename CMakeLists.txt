@@ -109,6 +109,9 @@ add_executable(jsom_tests
 
     # Ergonomic construction tests
     tests/test_ergonomic_construction.cpp # Factory methods and direct constructors
+
+    # Cache invalidation tests
+    tests/test_cache_invalidation.cpp    # Validates set()/push_back() invalidate path cache
 )
 
 target_link_libraries(jsom_tests

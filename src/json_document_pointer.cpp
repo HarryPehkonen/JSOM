@@ -282,6 +282,12 @@ void JsonDocument::clear_path_cache() const {
     }
 }
 
+void JsonDocument::invalidate_cache() {
+    if (path_cache_ != nullptr) {
+        path_cache_->clear();
+    }
+}
+
 auto JsonDocument::get_path_cache_stats() const -> JsonDocument::PathCacheStats {
     auto& cache = this->get_path_cache();
     auto stats = cache.get_stats();

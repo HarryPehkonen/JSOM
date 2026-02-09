@@ -210,6 +210,65 @@ public:
         }
     }
 
+    auto as_array() const -> const std::vector<JsonDocument>& {
+        validate_type(JsonType::Array);
+        return std::get<std::vector<JsonDocument>>(storage_);
+    }
+
+    auto as_object() const -> const std::map<std::string, JsonDocument>& {
+        validate_type(JsonType::Object);
+        return std::get<std::map<std::string, JsonDocument>>(storage_);
+    }
+
+    auto size() const -> std::size_t {
+        if (type_ == JsonType::Array) {
+            return std::get<std::vector<JsonDocument>>(storage_).size();
+        }
+        if (type_ == JsonType::Object) {
+            return std::get<std::map<std::string, JsonDocument>>(storage_).size();
+        }
+        throw TypeException("size() requires array or object, got " + type_name(type_));
+    }
+
+    auto empty() const -> bool {
+        if (type_ == JsonType::Null) {
+            return true;
+        }
+        if (type_ == JsonType::Array) {
+            return std::get<std::vector<JsonDocument>>(storage_).empty();
+        }
+        if (type_ == JsonType::Object) {
+            return std::get<std::map<std::string, JsonDocument>>(storage_).empty();
+        }
+        throw TypeException("empty() requires null, array, or object, got " + type_name(type_));
+    }
+
+    auto contains(const std::string& key) const -> bool {
+        validate_type(JsonType::Object);
+        const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
+        return obj.find(key) != obj.end();
+    }
+
+    void push_back(const JsonDocument& value) {
+        validate_type(JsonType::Array);
+        std::get<std::vector<JsonDocument>>(storage_).push_back(value);
+        invalidate_cache();
+    }
+
+    void push_back(JsonDocument&& value) {
+        validate_type(JsonType::Array);
+        std::get<std::vector<JsonDocument>>(storage_).push_back(std::move(value));
+        invalidate_cache();
+    }
+
+    static auto make_array() -> JsonDocument {
+        return JsonDocument(std::vector<JsonDocument>{});
+    }
+
+    static auto make_object() -> JsonDocument {
+        return JsonDocument(std::map<std::string, JsonDocument>{});
+    }
+
     auto operator[](const std::string& key) -> JsonDocument& {
         validate_type(JsonType::Object);
         auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
@@ -253,6 +312,7 @@ public:
     void set(const std::string& key, const JsonDocument& value) {
         validate_type(JsonType::Object);
         std::get<std::map<std::string, JsonDocument>>(storage_)[key] = value;
+        invalidate_cache();
     }
 
     void set(std::size_t index, const JsonDocument& value) {
@@ -262,17 +322,20 @@ public:
             arr.resize(index + 1);
         }
         arr[index] = value;
+        invalidate_cache();
     }
 
     void set(const std::string& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
         std::get<std::map<std::string, JsonDocument>>(storage_)[key] = std::move(value);
+        invalidate_cache();
     }
 
     void set(std::string&& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
-        std::get<std::map<std::string, JsonDocument>>(storage_).emplace(std::move(key),
-                                                                        std::move(value));
+        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(
+            std::move(key), std::move(value));
+        invalidate_cache();
     }
 
     auto to_json() const -> std::string {
@@ -349,6 +412,8 @@ public:
 private:
     // Get or create path cache for this document
     auto get_path_cache() const -> PathCache&;
+    // Invalidate path cache after structural mutations
+    void invalidate_cache();
     // Highly optimized string-based serialization
     // NOLINTBEGIN(readability-function-size)
     void serialize_compact_to_string(std::string& out) const {

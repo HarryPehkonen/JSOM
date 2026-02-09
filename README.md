@@ -223,15 +223,43 @@ analysis["averages"] = JsonDocument::from_map(avg_values);
 JsonDocument report(std::move(analysis));
 ```
 
+#### Creating Empty Documents
+
+```cpp
+// Static factory methods for empty containers
+auto arr = JsonDocument::make_array();
+auto obj = JsonDocument::make_object();
+```
+
+#### Querying Documents
+
+```cpp
+// Reference accessors (no copy, const access to underlying containers)
+const auto& items = doc.as_array();    // throws if not array
+const auto& fields = doc.as_object();  // throws if not object
+
+// Size and emptiness
+doc.size();       // element count for arrays and objects; throws on primitives
+doc.empty();      // true for null, empty arrays, and empty objects; throws on primitives
+
+// Key lookup
+doc.contains("name");  // true if object has key; throws on non-objects
+```
+
 #### Mutating Documents
 
 ```cpp
-// Set object keys
+// Set object keys (overwrites existing keys)
 doc.set("name", JsonDocument("Alice"));
 doc.set("age", JsonDocument(30));
 
 // Set array elements by index (resizes if needed)
 doc.set(0, JsonDocument("replaced"));
+
+// Append to arrays
+auto arr = JsonDocument::make_array();
+arr.push_back(JsonDocument(1));
+arr.push_back(JsonDocument("two"));
 ```
 
 #### JSON Pointer Operations
@@ -465,7 +493,7 @@ Regular UTF-8 characters in JSON strings work normally without escaping in both 
 ## Testing
 
 ```bash
-# Run all tests (67 test cases)
+# Run all tests (111 test cases)
 ./build/jsom_tests
 
 # Run specific test categories
