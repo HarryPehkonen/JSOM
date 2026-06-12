@@ -1,6 +1,21 @@
-# JSOM - High-Performance JSON Parser
+# JSOM - JavaScript Object Models
 
-A fast, modern JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting. Requires C++17 or newer (fully compatible with C++20, C++23, and beyond).
+## Why "JSOM"?
+
+In **JSON** (JavaScript Object **Notation**), the "N" stands for *Notation* — a way of **writing** data as text. JSOM replaces "Notation" with **Models** — the in-memory data structures that **hold** the data.
+
+This distinction is central to the library's design:
+
+- **JSON** is the string representation: `{"name": "Alice", "age": 30}`
+- **JSOM** is the in-memory model: a `JsonDocument` with typed fields, navigation, and mutation
+
+The API reflects this consistently:
+- `parse_document(str)` — reads *notation* into a *model*
+- `doc.to_json()` — converts a *model* back to *notation* (a string)
+
+---
+
+A fast, modern C++17 library for working with JSON data in memory. Features lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting. Fully compatible with C++20, C++23, and beyond.
 
 ## Features
 
@@ -15,6 +30,7 @@ A fast, modern JSON parser with lazy evaluation, RFC 6901 JSON Pointer support, 
 - **Iteration support** - Range-for on arrays, structured bindings on objects via `items()`
 - **Comparison operators** - Full set of `==`, `!=`, `<`, `>`, `<=`, `>=` with deep structural comparison
 - **Comment-tolerant parsing** - Optional `//` and `/* */` comment support for config files
+- **Streaming parsing** - Event-based `StreamingParser` with JSON Pointer paths for incremental input
 
 ## Performance
 
@@ -65,8 +81,8 @@ cmake --build build -j$(nproc)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
-# Build with benchmarks enabled (default)
-cmake -S . -B build -DBENCHMARKS=ON
+# Build with benchmarks enabled (OFF by default)
+cmake -S . -B build -DJSOM_BUILD_BENCHMARKS=ON
 cmake --build build -j$(nproc)
 
 # Run all tests (from project root)
@@ -263,6 +279,15 @@ auto obj = JsonDocument::make_object();
 #### Querying Documents
 
 ```cpp
+// Type-safe value access: as<T>() throws TypeException on mismatch
+int age = doc["age"].as<int>();
+
+// Safe access without exceptions: try_as<T>() returns std::optional<T>
+std::optional<int> maybe_age = doc["age"].try_as<int>();
+if (auto name = doc["name"].try_as<std::string>()) {
+    std::cout << *name << "\n";
+}
+
 // Reference accessors (no copy, const access to underlying containers)
 const auto& elems = doc.as_array();    // throws if not array
 const auto& fields = doc.as_object();  // throws if not object
@@ -332,6 +357,30 @@ arr.push_back(1);
 arr.push_back("two");
 ```
 
+##### Reference Invalidation and Cache Safety
+
+References obtained from `operator[]`, `at()`, `as_array()`, or `as_object()` follow
+standard C++ container rules: any mutation that can reallocate the underlying container
+(`push_back`, or an index-based `set()` that grows an array) invalidates references and
+pointers into it.
+
+The internal JSON Pointer caches are exempt from this concern: every mutation increments
+a global mutation epoch, so cached paths held by this document *or any ancestor* are
+detected as stale and re-navigated instead of dereferencing freed memory. You never need
+to manually clear caches after mutating.
+
+```cpp
+auto& name = doc.at("/users/0/name");   // reference into the document
+doc.at("/users").push_back(new_user);   // may reallocate the users array...
+// `name` may now dangle (standard vector rules) -- re-navigate instead:
+auto& fresh = doc.at("/users/0/name");  // cache detects the mutation, safe
+
+// For structural changes deep in a document, prefer the root-level
+// JSON Pointer mutators, which avoid holding references across mutations:
+doc.set_at("/users/0/name", "Alice");
+doc.remove_at("/users/0/temp");
+```
+
 #### JSON Pointer Operations
 ```cpp
 // JSON Pointer operations
@@ -360,6 +409,49 @@ auto default_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})");
 auto unicode_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})", ParsePresets::Unicode);
 // Converts to UTF-8: "A "
 ```
+
+### Streaming and Event-Based Parsing
+
+For large inputs, or when you don't need the whole document in memory, `StreamingParser`
+emits events as it parses instead of building a model. Each event carries the value's
+RFC 6901 JSON Pointer path:
+
+```cpp
+#include <jsom/jsom.hpp>
+
+jsom::StreamingParser parser;
+
+jsom::ParseEvents events;
+events.on_value = [](const jsom::JsonDocument& value, const std::string& path) {
+    std::cout << path << " = " << value.to_json() << "\n";
+};
+events.on_enter_object = [](const std::string& path) { /* object starts at path */ };
+events.on_enter_array = [](const std::string& path) { /* array starts at path */ };
+events.on_exit_container = [](const std::string& path) { /* container at path ends */ };
+events.on_error = [](const jsom::ParseError& err) {
+    std::cerr << "Parse error at position " << err.position << ": " << err.message << "\n";
+};
+parser.set_events(events);
+
+// Feed input all at once, or incrementally as it arrives
+parser.parse_string(json_text);          // whole string
+// parser.feed_character(c);             // ...or one character at a time
+parser.end_input();                      // signal end of input
+```
+
+All callbacks are optional -- unset events are simply skipped. `reset()` returns the
+parser to its initial state for reuse.
+
+To run the streaming pipeline but still get a complete `JsonDocument` (the events are
+consumed by an internal `DocumentBuilder`):
+
+```cpp
+auto doc = jsom::parse_document_streaming(json_text);  // same model as parse_document()
+```
+
+For typical workloads prefer `parse_document()`, which uses the faster
+direct-construction parser; the streaming variant trades speed for incremental input
+and bounded memory.
 
 ### Error Handling
 ```cpp
@@ -587,7 +679,7 @@ CLI support:
 ## Testing
 
 ```bash
-# Run all tests (161 test cases)
+# Run all tests
 ./build/jsom_tests
 
 # Run specific test categories
@@ -633,7 +725,7 @@ JSOM uses a modern C++17 architecture:
 - **`PathCache`** with LRU eviction and prefix optimization
 - **`JsonFormatter`** with intelligent layout algorithms
 
-See `DECISIONS*.md` files for detailed architectural decisions and rationale.
+See `FORMATTING.md` for detailed documentation of the formatting system.
 
 ## Contributing
 

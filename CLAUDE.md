@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Naming Philosophy
+
+JSOM stands for **JavaScript Object Models**. Where JSON's "N" is *Notation* (a text format for writing data), JSOM's "M" is *Models* (in-memory data structures for holding data). This distinction matters for naming:
+- **JSON** refers to the string/text representation. `to_json()` means "produce the notation string."
+- **JsonDocument** is the in-memory model. `parse_document()` means "parse notation into a model."
+
+Keep this convention when adding or renaming API methods.
+
 ## Development Commands
 
 ### Building (⚠️ Always stay in project root)
@@ -96,10 +104,10 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 - `PathCache`: Multi-level LRU+prefix caching for performance
 - Batch operations and path introspection capabilities
 
-**Parsing System** (`include/jsom/fast_parser.hpp`, `streaming_parser.hpp`):
+**Parsing System** (`include/jsom/fast_parser.hpp`, `streaming_parser.hpp`, `batch_parser.hpp`):
 - `FastParser`: Optimized direct-construction parsing with optional comment support
-- `StreamingParser`: Event-based parsing for large documents
-- `BatchParser`: Optimized for parsing multiple documents
+- `StreamingParser`: Event-based parsing for large documents (events defined in `parse_events.hpp`)
+- `batch_parser.hpp`: `parse_document()`/`parse_document_streaming()` entry points; `DocumentBuilder` assembles documents from streaming events
 - `JsonParseOptions`: Configurable Unicode handling and comment tolerance (`allow_comments`)
 
 **Formatting System** (`include/jsom/json_formatter.hpp`, `json_format_options.hpp`):
@@ -121,7 +129,7 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 
 - `include/jsom/`: All public headers, fully self-contained
 - `src/`: Minimal implementation files (CLI + path operations + formatting)  
-- `tests/`: Comprehensive test suite with 161 test cases
+- `tests/`: Comprehensive test suite (run `./build/jsom_tests` for current count)
 - `benchmarks/`: Performance comparison against nlohmann/json
 - `FORMATTING.md`: Detailed formatting system documentation
 
