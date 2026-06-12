@@ -177,31 +177,31 @@ private:
 
 class SimpleDocumentBuilder {
 private:
-    JsonDocument result_;
-    bool has_result_{false};
+    JsonDocument document_;
+    bool has_document_{false};
 
 public:
     SimpleDocumentBuilder() = default;
 
     void on_value(const JsonDocument& value, const std::string& path) {
         if (path.empty()) {
-            result_ = value;
-            has_result_ = true;
+            document_ = value;
+            has_document_ = true;
         }
     }
 
     void on_enter_object(const std::string& path) {
         if (path.empty()) {
-            result_
+            document_
                 = JsonDocument(std::initializer_list<std::pair<const std::string, JsonDocument>>{});
-            has_result_ = true;
+            has_document_ = true;
         }
     }
 
     void on_enter_array(const std::string& path) {
         if (path.empty()) {
-            result_ = JsonDocument(std::vector<JsonDocument>{});
-            has_result_ = true;
+            document_ = JsonDocument(std::vector<JsonDocument>{});
+            has_document_ = true;
         }
     }
 
@@ -212,11 +212,11 @@ public:
                                  + error.message);
     }
 
-    [[nodiscard]] auto get_result() const -> JsonDocument {
-        if (!has_result_) {
+    [[nodiscard]] auto get_document() const -> JsonDocument {
+        if (!has_document_) {
             throw std::runtime_error("No document parsed");
         }
-        return result_;
+        return document_;
     }
 };
 
