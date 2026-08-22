@@ -185,6 +185,13 @@ public:
         }
     }
 
+    // Is this segment the append sentinel ("-", RFC 6902)? When used as the
+    // final segment of a pointer, it means "append to the end of the array at
+    // the parent path" (e.g. "/items/-").
+    static auto is_append(const std::string& segment) -> bool {
+        return segment == "-";
+    }
+
     // Get parent pointer
     static auto get_parent(const std::string& pointer) -> std::string {
         if (pointer.empty()) {

@@ -126,7 +126,18 @@ void JsonDocument::set_at(const std::string& json_pointer, JsonDocument&& value)
     }
     
     // Set the value based on parent type
-    if (parent->is_object()) {
+    if (JsonPointer::is_append(final_segment)) {
+        // Append sentinel "-" (RFC 6902): only valid on arrays.
+        if (!parent->is_array()) {
+            throw JsonPointerTypeException(json_pointer, "array",
+                                           parent->is_object() ? "object"
+                                           : parent->is_null() ? "null"
+                                           : parent->is_bool() ? "boolean"
+                                           : parent->is_number() ? "number"
+                                           : "string");
+        }
+        parent->push_back(value);
+    } else if (parent->is_object()) {
         parent->set(final_segment, value);
     } else if (parent->is_array()) {
         if (!JsonPointer::is_array_index(final_segment)) {

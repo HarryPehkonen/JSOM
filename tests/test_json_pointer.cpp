@@ -153,6 +153,33 @@ TEST_F(JsonPointerTest, PathModification) {
     EXPECT_EQ(doc.at("/config/new_setting").as<int>(), 42);
 }
 
+TEST_F(JsonPointerTest, AppendSentinel) {
+    // set_at with "-" appends to the end of an array (RFC 6902).
+    doc.set_at("/users/-", JsonDocument("Carol"));
+    EXPECT_EQ(doc.at("/users/2").as<std::string>(), "Carol");
+    EXPECT_EQ(doc.at("/users").size(), std::size_t(3));
+
+    // Appending again continues to extend the array.
+    doc.set_at("/users/-", JsonDocument("Dave"));
+    EXPECT_EQ(doc.at("/users/3").as<std::string>(), "Dave");
+    EXPECT_EQ(doc.at("/users").size(), std::size_t(4));
+
+    // "-" on a fresh array appends at the correct position.
+    doc.set_at("/new_list", JsonDocument::from_vector(
+                                std::vector<JsonDocument>{JsonDocument(1)}));
+    doc.set_at("/new_list/-", JsonDocument(2));
+    EXPECT_EQ(doc.at("/new_list/1").as<int>(), 2);
+    EXPECT_EQ(doc.at("/new_list").size(), std::size_t(2));
+}
+
+TEST_F(JsonPointerTest, AppendSentinelTypeError) {
+    // "-" on a non-array parent must throw, not create a literal "-" key.
+    EXPECT_THROW(doc.set_at("/config/-", JsonDocument("nope")),
+                 JsonPointerTypeException);
+    // Ensure no stray "-" key was created in the object.
+    EXPECT_FALSE(doc.exists("/config/-"));
+}
+
 TEST_F(JsonPointerTest, PathRemoval) {
     // Create a fresh document for this test to avoid interference from previous tests
     std::string fresh_json = R"({
