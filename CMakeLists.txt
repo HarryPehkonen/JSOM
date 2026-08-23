@@ -60,8 +60,10 @@ option(JSOM_BUILD_BENCHMARKS "Build JSOM benchmarks" OFF)  # Always OFF unless e
 
 if(JSOM_IS_TOP_LEVEL)
     option(JSOM_BUILD_TESTS "Build JSOM tests" ON)
+    option(JSOM_INSTALL "Install JSOM's CLI and artifacts" ON)
 else()
     option(JSOM_BUILD_TESTS "Build JSOM tests" OFF)
+    option(JSOM_INSTALL "Install JSOM's CLI and artifacts" OFF)
 endif()
 
 # ================================
@@ -378,9 +380,11 @@ target_include_directories(jsom PRIVATE
 )
 
 # Install target for CLI
-install(TARGETS jsom
-    RUNTIME DESTINATION bin
-)
+if(JSOM_INSTALL)
+    install(TARGETS jsom
+        RUNTIME DESTINATION bin
+    )
+endif()
 
 # ================================
 # Development Convenience Targets
