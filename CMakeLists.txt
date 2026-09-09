@@ -321,7 +321,7 @@ if(CLANG_PLUS_PLUS)
     # Quick fuzzing (1 minute)
     add_custom_target(fuzz_quick
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=60
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=60
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running quick fuzz test (1 minute)"
@@ -330,7 +330,7 @@ if(CLANG_PLUS_PLUS)
     # Standard fuzzing (10 minutes)
     add_custom_target(fuzz
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=600
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running standard fuzz test (10 minutes)"
@@ -339,7 +339,7 @@ if(CLANG_PLUS_PLUS)
     # Long fuzzing (1 hour)
     add_custom_target(fuzz_long
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus -max_total_time=3600
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=3600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running extended fuzz test (1 hour)"
@@ -476,25 +476,3 @@ if(JSOM_BUILD_TESTS AND JSOM_BUILD_BENCHMARKS)
     message(STATUS "  make validation            - Final acceptance testing")
 endif()
 message(STATUS "")
-# --- Fuzzing (libFuzzer; clang only) ---
-option(JSOM_BUILD_FUZZING "Build libFuzzer targets (requires clang)" OFF)
-if(JSOM_BUILD_FUZZING)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(FATAL_ERROR "JSOM_BUILD_FUZZING requires clang (libFuzzer via -fsanitize=fuzzer)")
-    endif()
-    set(JSOM_FUZZ_SAN_LIST -fsanitize=address,undefined -fno-omit-frame-pointer)
-    set(JSOM_FUZZ_SAN_STR "-fsanitize=address,undefined -fno-omit-frame-pointer")
-    # Instrument JSOM's own targets so sanitizers see inside the library.
-    foreach(jsom_fuzz_target jsom_lib jsom jsom_tests)
-        if(TARGET ${jsom_fuzz_target})
-            target_compile_options(${jsom_fuzz_target} PRIVATE ${JSOM_FUZZ_SAN_LIST})
-            if(NOT ${jsom_fuzz_target} STREQUAL "jsom_lib")
-                set_target_properties(${jsom_fuzz_target} PROPERTIES LINK_FLAGS "${JSOM_FUZZ_SAN_STR}")
-            endif()
-        endif()
-    endforeach()
-    add_executable(fuzz_jsom_parse fuzz/fuzz_jsom_parse.cpp)
-    target_link_libraries(fuzz_jsom_parse PRIVATE jsom_lib)
-    target_compile_options(fuzz_jsom_parse PRIVATE -fsanitize=fuzzer ${JSOM_FUZZ_SAN_LIST} -g -O1)
-    set_target_properties(fuzz_jsom_parse PROPERTIES LINK_FLAGS "-fsanitize=fuzzer ${JSOM_FUZZ_SAN_STR}")
-endif()
