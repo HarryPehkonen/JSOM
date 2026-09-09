@@ -270,10 +270,9 @@ void JsonDocument::precompute_paths(int max_depth) const {
         try {
             auto result = NavigationEngine::navigate_with_cache(
                 const_cast<JsonDocument*>(this), path, cache);
-        } catch (const JsonPointerException&) {
+        } catch (const JsonPointerException&) {  // NOLINT(bugprone-empty-catch): intentional — warming is best-effort, failed paths simply stay uncached
             // Ignore navigation failures during precomputation — warming is
             // best-effort; paths that fail to navigate simply won't be cached.
-            // NOLINTNEXTLINE(bugprone-empty-catch): intentional swallow, see above.
         }
     }
 }
@@ -285,10 +284,9 @@ void JsonDocument::warm_path_cache(const std::vector<std::string>& likely_paths)
         try {
             auto result = NavigationEngine::navigate_with_cache(
                 const_cast<JsonDocument*>(this), path, cache);
-        } catch (const JsonPointerException&) {
+        } catch (const JsonPointerException&) {  // NOLINT(bugprone-empty-catch): intentional — warming is best-effort, failed paths simply stay uncached
             // Ignore failures during cache warming — best-effort; missing paths
             // simply stay uncached.
-            // NOLINTNEXTLINE(bugprone-empty-catch): intentional swallow, see above.
         }
     }
 }
