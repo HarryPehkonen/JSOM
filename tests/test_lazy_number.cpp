@@ -33,6 +33,18 @@ TEST(LazyNumberTest, FormatPreservation) {
     EXPECT_EQ(num2.as_double(), 1e10);
 }
 
+TEST(LazyNumberTest, IntConversionOutOfRangeThrows) {
+    // Regression: as_int() on a value outside int's range used to narrow-cast
+    // BEFORE the range check — undefined behavior. Caught by UBSan during
+    // fuzzing: "8.88889e+15 is outside the range of representable values of
+    // type 'int'".
+    LazyNumber huge("8888888888888888");  // 8.88e15 > INT_MAX
+    EXPECT_THROW((void)huge.as_int(), TypeException);
+
+    LazyNumber tiny("-8888888888888888");  // < INT_MIN
+    EXPECT_THROW((void)tiny.as_int(), TypeException);
+}
+
 TEST(LazyNumberTest, InvalidConversion) {
     LazyNumber num("not_a_number");
     // as_double()/as_int() are [[nodiscard]] and throw on invalid input;

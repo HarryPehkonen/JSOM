@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -48,11 +50,16 @@ public:
     }
 
     [[nodiscard]] auto as_int() const -> int {
-        // NOLINTNEXTLINE(readability-identifier-length)
         double d = as_double();
-        if (d != static_cast<int>(d)) {
+        // Range-check BEFORE narrowing: static_cast<int>(d) is UB when d is
+        // outside int's range (found by clang UBSan during fuzzing:
+        // "8.88889e+15 is outside the range of representable values of type
+        // 'int'"; gcc 16 does not diagnose this pattern, clang does).
+        if (d < static_cast<double>(std::numeric_limits<int>::min()) ||
+            d > static_cast<double>(std::numeric_limits<int>::max()) ||
+            std::trunc(d) != d) {
             std::string repr = original_repr_ ? *original_repr_ : std::to_string(d);
-            throw TypeException("Cannot convert '" + repr + "' to int (not an integer value)");
+            throw TypeException("Cannot convert '" + repr + "' to int (out of range or not an integer value)");
         }
         return static_cast<int>(d);
     }
