@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace jsom {
 
@@ -84,10 +85,10 @@ constexpr int NUMBER_BUFFER_PARSE_SIZE = 64;     // Number buffer size for parsi
 constexpr int ARRAY_INITIAL_CAPACITY = 16;       // Initial array capacity
 constexpr int JSON_DOCUMENT_INITIAL_SIZE = 1024; // Initial JsonDocument string size
 
-// Literal string lengths
-const std::string LITERAL_TRUE = "true";
-const std::string LITERAL_FALSE = "false";
-const std::string LITERAL_NULL = "null";
+// Literal string views (string_view: no static-init allocation, no throw risk)
+inline constexpr std::string_view LITERAL_TRUE = "true";
+inline constexpr std::string_view LITERAL_FALSE = "false";
+inline constexpr std::string_view LITERAL_NULL = "null";
 constexpr int TRUE_LENGTH = 4;           // "true"
 constexpr int FALSE_LENGTH = 5;          // "false"
 constexpr int NULL_LENGTH = 4;           // "null"

@@ -141,7 +141,7 @@ private:
                 // Bulk append everything we've scanned
                 string_buffer_.append(current, data_ + pos_ - current);
                 ++pos_; // Skip closing quote
-                return JsonDocument(std::move(string_buffer_));
+                return JsonDocument(string_buffer_);
             }
             if (c == '\\') {
                 // Append everything up to escape
@@ -269,7 +269,7 @@ private:
         char first = peek();
         if (first == 't') {
             if (pos_ + parser_constants::TRUE_LENGTH <= size_
-                && std::memcmp(data_ + pos_, parser_constants::LITERAL_TRUE.c_str(),
+                && std::memcmp(data_ + pos_, parser_constants::LITERAL_TRUE.data(),
                                parser_constants::TRUE_LENGTH)
                        == 0) {
                 pos_ += parser_constants::TRUE_LENGTH;
@@ -277,7 +277,7 @@ private:
             }
         } else if (first == 'f') {
             if (pos_ + parser_constants::FALSE_LENGTH <= size_
-                && std::memcmp(data_ + pos_, parser_constants::LITERAL_FALSE.c_str(),
+                && std::memcmp(data_ + pos_, parser_constants::LITERAL_FALSE.data(),
                                parser_constants::FALSE_LENGTH)
                        == 0) {
                 pos_ += parser_constants::FALSE_LENGTH;
@@ -285,7 +285,7 @@ private:
             }
         } else if (first == 'n') {
             if (pos_ + parser_constants::NULL_LENGTH <= size_
-                && std::memcmp(data_ + pos_, parser_constants::LITERAL_NULL.c_str(),
+                && std::memcmp(data_ + pos_, parser_constants::LITERAL_NULL.data(),
                                parser_constants::NULL_LENGTH)
                        == 0) {
                 pos_ += parser_constants::TRUE_LENGTH;

@@ -11,8 +11,8 @@
 
 using namespace jsom;
 
-// CLI Version
-const std::string VERSION = "1.0.0";
+// CLI Version (const char*: no static-init string allocation)
+constexpr const char* VERSION = "1.0.0";
 
 // Utility functions
 auto read_stdin() -> std::string {
@@ -564,7 +564,7 @@ auto pointer_benchmark(const std::string& paths_str, const std::string& input_fi
             auto end = std::chrono::high_resolution_clock::now();
             
             auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            double avg_ns = duration.count() / cli_constants::BENCHMARK_DIVISOR;
+            double avg_ns = static_cast<double>(duration.count()) / cli_constants::BENCHMARK_DIVISOR;
             
             std::cout << std::left << std::setw(cli_constants::BENCHMARK_PATH_COLUMN_WIDTH) << path 
                      << std::right << std::setw(cli_constants::BENCHMARK_TIME_COLUMN_WIDTH) << std::fixed << std::setprecision(cli_constants::BENCHMARK_PRECISION) 
@@ -692,7 +692,7 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
         return pointer_benchmark(args[3], input_file, warm_cache);
         
     } else {
-        std::cerr << "Unknown pointer subcommand: " << subcommand << std::endl;
+        std::cerr << "Unknown pointer subcommand: " << subcommand << '\n';
         show_pointer_usage();
         return 1;
     }
@@ -721,9 +721,9 @@ auto benchmark_command(const std::vector<std::string>& args) -> int {
         auto doc = parse_document(json);
         auto parse_end = std::chrono::high_resolution_clock::now();
         
-        // Serialize benchmark
+        // Serialize benchmark (call timed; result discarded — to_json is pure)
         auto serialize_start = std::chrono::high_resolution_clock::now();
-        std::string output = doc.to_json();
+        doc.to_json();
         auto serialize_end = std::chrono::high_resolution_clock::now();
         
         auto parse_time = std::chrono::duration_cast<std::chrono::milliseconds>(parse_end - parse_start);
@@ -766,7 +766,7 @@ auto main(int argc, char* argv[]) -> int {
     } else if (command == "benchmark") {
         return benchmark_command(args);
     } else {
-        std::cerr << "Unknown command: " << command << std::endl;
+        std::cerr << "Unknown command: " << command << '\n';
         show_usage();
         return 1;
     }
