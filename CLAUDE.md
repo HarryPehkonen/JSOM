@@ -151,3 +151,22 @@ The `jsom` executable (`src/jsom_cli.cpp`) provides:
 - Full integration with the library's advanced features
 
 Always use `./build/jsom` from project root rather than changing to build directory.
+
+## C++ Standards (MANDATORY)
+
+All C++ work in this repo MUST follow `CODING_STANDARDS.md` — modern C++17 in
+the spirit of the C++ Core Guidelines (Type/Bounds/Lifetime profiles),
+exceptions allowed for error handling. This is binding for every agent run.
+
+Gates before any change is done (see the Definition of Done in
+CODING_STANDARDS.md):
+
+1. `cmake --build build` — zero warnings (project targets use `-Werror`).
+2. `./build/jsom_tests` — all tests pass; TDD (failing test first) for every
+   behavior change or bug fix.
+3. Sanitizer gate: `cmake -B build-asan -DJSOM_SANITIZE=ON && cmake --build
+   build-asan -j$(nproc) && ./build-asan/jsom_tests` — clean under ASan+UBSan.
+4. Never introduce raw owning pointers, `new`/`delete`, or
+   `reinterpret_cast`/C-style casts.
+5. If a build under these gates fails because of a pre-existing warning, fix
+   the warning (small, targeted change) rather than weakening the flags.

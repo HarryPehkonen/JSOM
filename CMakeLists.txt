@@ -65,6 +65,11 @@ add_library(JSOM::jsom ALIAS jsom_lib)
 
 # Build options (must be defined before test/benchmark configuration)
 option(JSOM_BUILD_BENCHMARKS "Build JSOM benchmarks" OFF)  # Always OFF unless explicitly enabled
+option(JSOM_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+if(JSOM_SANITIZE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+endif()
 
 if(JSOM_IS_TOP_LEVEL)
     option(JSOM_BUILD_TESTS "Build JSOM tests" ON)
@@ -386,6 +391,15 @@ target_link_libraries(jsom
 target_include_directories(jsom PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# Warnings as errors for JSOM's OWN targets only (CODING_STANDARDS.md rule 11).
+# Fetched dependencies (googletest, benchmark, nlohmann_json) keep their own
+# flags — never apply -Werror to them.
+foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks)
+    if(TARGET ${jsom_target})
+        target_compile_options(${jsom_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endforeach()
 
 # Install target for CLI
 if(JSOM_INSTALL)
