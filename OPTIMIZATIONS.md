@@ -1,10 +1,8 @@
 # JSOM — Performance Optimization Survey
 
-Status: **proposal — nothing in this document is implemented yet.**
-Scope: optimizations that make JSOM faster without significant increases in
-code complexity. All items are listed with evidence, expected impact, and a
-complexity/risk assessment so they can be evaluated and prioritized before any
-code changes land.
+Status: **#1 and #2 IMPLEMENTED (commit `5778292`, 2026-09-09) — #3-#8 still
+proposals.** Everything below that is not marked implemented is still open for
+evaluation before any code changes land.
 
 ---
 
@@ -40,7 +38,7 @@ code changes land.
 
 ## Tier 1 — tiny change, measured 76× win
 
-### 1. Arrays deep-copy every parsed element (the deep-nesting killer)
+### 1. Arrays deep-copy every parsed element (the deep-nesting killer) — ✅ IMPLEMENTED
 
 **Finding.** `JsonDocument::set(std::size_t, const JsonDocument&)` is the only
 array overload; there is no rvalue overload. `parse_array` therefore calls
@@ -51,7 +49,9 @@ values pay a full subtree copy per element — O(n²) in nesting depth.
 **Fix.** Add `set(std::size_t, JsonDocument&&)` — 5 lines, an exact mirror of
 the existing `const&` overload with `std::move(value)`. The class already has
 four `set` overloads (object + array × `const&` + `&&`); this completes the
-existing pattern rather than introducing a new concept.
+existing pattern rather than introducing a new concept. *(Done in commit
+`5778292`; regression test `DeepNestingParseIsLinear` added first — RED at
+3181 ms, GREEN at 1 ms.)*
 
 **Complexity / risk: negligible.**
 - No API change: lvalue callers still bind `const&` with identical semantics.
@@ -74,14 +74,19 @@ existing pattern rather than introducing a new concept.
 
 ## Tier 2 — small changes, solid wins
 
-### 2. Default builds compile at -O0 (biggest real-world win)
+### 2. Default builds compile at -O0 (biggest real-world win) — ✅ IMPLEMENTED
 
 **Finding.** `CMAKE_BUILD_TYPE` is not defaulted in CMakeLists, so the
 documented `cmake -B build` produces an **unoptimized** library. Everything
 built that way — the CLI, the tests, downstream users — runs at -O0.
 
 **Fix.** Default `CMAKE_BUILD_TYPE` to `Release` when unset (or add a `-O2`
-fallback for the library when no build type is given). ~3 lines.
+fallback for the library when no build type is given). ~3 lines. *(Done in
+commit `5778292`. Consequence handled: the Release default surfaced a gcc<15
+`-Wmaybe-uninitialized` false-positive family on `std::variant` internals
+under optimized+NDEBUG test builds (gcc#101905); suppressed for `jsom_tests`
+only, version-gated to GNU < 15, with a citation comment — library and CLI
+keep full `-Werror` on all compilers.)*
 
 **Complexity:** none. **Risk:** none (an explicitly chosen build type still
 wins). **Impact:** 5–20× on all default builds, zero code change.
