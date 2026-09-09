@@ -269,9 +269,18 @@ endif()
 # clang-tidy (essential for AI/DEVELOPMENT_STANDARDS/CODE_QUALITY.md compliance)
 find_program(CLANG_TIDY NAMES clang-tidy)
 if(CLANG_TIDY)
+    # Analyze project code ONLY (src + include), driven by compile_commands.json
+    # (-p). Never feed test files to tidy: gtest macros generate thousands of
+    # false positives and the gtest include dirs are not on the tool's path.
+    file(GLOB_RECURSE JSOM_TIDY_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp
+    )
     add_custom_target(tidy
-        COMMAND ${CLANG_TIDY} ${JSOM_SOURCES} -- -x c++ -I${CMAKE_CURRENT_SOURCE_DIR}/include -std=c++17
-        COMMENT "Running clang-tidy on source files"
+        COMMAND ${CLANG_TIDY} -p ${CMAKE_BINARY_DIR}
+                -header-filter=${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${JSOM_TIDY_SOURCES}
+        COMMENT "Running clang-tidy on project sources (CODING_STANDARDS.md gate)"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     message(STATUS "clang-tidy available - use 'make tidy' for static analysis")
