@@ -389,6 +389,20 @@ public:
         invalidate_cache();
     }
 
+    // rvalue overload (OPTIMIZATIONS.md #1): array parsing was deep-copying
+    // every element because only the const& overload existed. Moving the
+    // temporary in makes deeply nested documents O(depth) instead of
+    // O(depth^2). See test DeepNestingParseIsLinear.
+    void set(std::size_t index, JsonDocument&& value) {
+        validate_type(JsonType::Array);
+        auto& arr = std::get<std::vector<JsonDocument>>(storage_);
+        if (index >= arr.size()) {
+            arr.resize(index + 1);
+        }
+        arr[index] = std::move(value);
+        invalidate_cache();
+    }
+
     void set(const std::string& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
         std::get<std::map<std::string, JsonDocument>>(storage_)[key] = std::move(value);

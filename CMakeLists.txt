@@ -4,6 +4,15 @@
 # It focuses on core development needs: building, testing, benchmarking, and code quality.
 
 cmake_minimum_required(VERSION 3.10)
+
+# Default to an optimized build unless the user chose a build type
+# (OPTIMIZATIONS.md #2): an unset CMAKE_BUILD_TYPE silently compiles at -O0,
+# which made the documented `cmake -B build` flow 5-20x slower than it should
+# be. An explicitly chosen type (e.g. -DCMAKE_BUILD_TYPE=Debug) still wins.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 project(JSOM VERSION 1.0.0 LANGUAGES CXX)
 
 # Install prefix: default to the user's ~/.local so `install` needs no root.
@@ -409,6 +418,16 @@ foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks)
         target_compile_options(${jsom_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
 endforeach()
+
+# gcc < 15: -Wmaybe-uninitialized false-positives on std::variant move/assign
+# internals in optimized (-O2/-O3 -DNDEBUG) builds (gcc#101905 family; fixed
+# in gcc 15+). Trips in test TUs that construct+move JsonDocuments inside
+# gtest virtual TestBody functions. Scope: tests target only, GNU < 15 —
+# library and CLI keep the full -Werror set on every compiler.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+    target_compile_options(jsom_tests PRIVATE -Wno-maybe-uninitialized)
+endif()
 
 # Install target for CLI
 if(JSOM_INSTALL)

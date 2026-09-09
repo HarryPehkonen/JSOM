@@ -96,3 +96,27 @@ TEST_F(PerformanceRegressionTest, RepeatedAccessCaching) {
     EXPECT_GT(second_access, 0.0);                // Ensure we actually measured something
     EXPECT_LT(second_access, first_access * 1.5); // Allow 50% variance for timing noise
 }
+
+TEST_F(PerformanceRegressionTest, DeepNestingParseIsLinear) {
+    // Regression (OPTIMIZATIONS.md #1): array elements used to be deep-COPIED
+    // into the result (no rvalue set() overload existed), making deeply nested
+    // documents O(depth^2). Depth 3000 previously took ~200ms+; with the move
+    // overload the same document parses in ~1ms. The generous 100ms ceiling
+    // separates the two by two orders of magnitude while staying immune to
+    // machine and -O0 variance.
+    std::string json;
+    for (int i = 0; i < 3000; ++i) {
+        json += '[';
+    }
+    json += "42";
+    for (int i = 0; i < 3000; ++i) {
+        json += ']';
+    }
+
+    double time_ms = measure_time_ms([&]() {
+        auto doc = parse_document(json);
+        (void)doc;
+    });
+
+    EXPECT_LT(time_ms, 100.0);
+}
