@@ -6,6 +6,14 @@
 cmake_minimum_required(VERSION 3.10)
 project(JSOM VERSION 1.0.0 LANGUAGES CXX)
 
+# Install prefix: default to the user's ~/.local so `install` needs no root.
+# Value-based check (not CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT) so it
+# also applies to EXISTING build dirs whose cache already holds /usr/local.
+# Override at install time with: cmake --install build --prefix <path>
+if(CMAKE_INSTALL_PREFIX STREQUAL "/usr/local")
+    set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Install prefix" FORCE)
+endif()
+
 # Detect if JSOM is being built standalone or as a subdirectory
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(JSOM_IS_TOP_LEVEL ON)

@@ -35,8 +35,11 @@ TEST(LazyNumberTest, FormatPreservation) {
 
 TEST(LazyNumberTest, InvalidConversion) {
     LazyNumber num("not_a_number");
-    EXPECT_THROW(num.as_double(), TypeException);
-    EXPECT_THROW(num.as_int(), TypeException);
+    // as_double()/as_int() are [[nodiscard]] and throw on invalid input;
+    // EXPECT_THROW discards the return value, so cast to void to silence
+    // -Wunused-result (the call still happens and the throw is caught).
+    EXPECT_THROW((void)num.as_double(), TypeException);
+    EXPECT_THROW((void)num.as_int(), TypeException);
 }
 
 TEST(LazyNumberTest, IntegerCheck) {
