@@ -186,7 +186,9 @@ auto JsonDocument::remove_at(const std::string& json_pointer) -> bool {
             size_t index = JsonPointer::to_array_index(final_segment);
             auto& arr = std::get<std::vector<JsonDocument>>(parent->storage_);
             if (index < arr.size()) {
-                arr.erase(arr.begin() + index);
+                // erase needs an iterator difference_type; index < size() (checked
+                // above) so the explicit narrowing is safe and well-defined.
+                arr.erase(arr.begin() + static_cast<std::ptrdiff_t>(index));
                 if (path_cache_ != nullptr) { path_cache_->clear(); }
                 return true;
             }
@@ -269,7 +271,9 @@ void JsonDocument::precompute_paths(int max_depth) const {
             auto result = NavigationEngine::navigate_with_cache(
                 const_cast<JsonDocument*>(this), path, cache);
         } catch (const JsonPointerException&) {
-            // Ignore navigation failures during precomputation
+            // Ignore navigation failures during precomputation — warming is
+            // best-effort; paths that fail to navigate simply won't be cached.
+            // NOLINTNEXTLINE(bugprone-empty-catch): intentional swallow, see above.
         }
     }
 }
@@ -282,7 +286,9 @@ void JsonDocument::warm_path_cache(const std::vector<std::string>& likely_paths)
             auto result = NavigationEngine::navigate_with_cache(
                 const_cast<JsonDocument*>(this), path, cache);
         } catch (const JsonPointerException&) {
-            // Ignore failures during cache warming
+            // Ignore failures during cache warming — best-effort; missing paths
+            // simply stay uncached.
+            // NOLINTNEXTLINE(bugprone-empty-catch): intentional swallow, see above.
         }
     }
 }
