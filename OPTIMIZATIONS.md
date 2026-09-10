@@ -8,12 +8,17 @@ evaluation before any code changes land.
 
 ## Method
 
-- Release build (`-O3 -march=native`), scratch benchmark probe outside the
-  repo, `perf` sampling profile on the MacBook.
-- One temporary 5-line measurement patch was applied, measured, and **reverted**
-  (tree clean at the time of writing). Every measured number below is from a
-  real build of the *unmodified* code unless stated otherwise.
-- Baselines and profile were captured on 2026-09-09.
+- Release build (`-O3 -march=native`), the standalone probe
+  `tools/perf_probe.cpp` (in-repo since 2026-09-09), `perf` sampling profile
+  on the MacBook.
+- Measurement rule: **sequential before/after runs are noise (±5%)** — every
+  claim below comes from a *controlled interleaved A/B*: two probe binaries
+  (current vs one temporary reverted hunk) alternating A/B/A/B in one session,
+  3 rounds, spread reported. Temporary measurement patches are reverted.
+- **Probe input shape decides what you can see**: 9-char keys are SSO (the
+  removed copy is already free) — long keys are needed to expose key-handling
+  costs. The probe now includes a realistic 20-30-char-key workload.
+- Baselines and profile were first captured 2026-09-09.
 
 ### Baselines (unmodified code, `-O3 -march=native`)
 
@@ -225,17 +230,29 @@ complexity. **Defer** until items 1–7 land and the profile is re-measured.
 
 ---
 
-## Suggested order of attack
+## Status summary / what remains
 
-1. **#1 + #2 first** — measured 76× on nesting; -O0→Release is free.
-2. **#3–#6** as one small patch (all localized, all low-risk).
-3. Re-measure — expect object-heavy parse 2–4× faster and array/nested-heavy
-   docs 10–100× faster depending on shape.
-4. **#7** as its own experiment with real workloads (the only item needing a
-   design conversation). #8 only if the re-measured profile still demands it.
+**Done:** #1 (76× deep nesting), #1b (−9.5/−11.5/−16.1% arrays), #2 (Release
+default), #3/#4/#6 (0–3%, behavior-neutral cleanups).
+**Remaining, in priority order:**
+1. **#7 — object storage (`std::map`).** The last measured wall: object parse
+   is now the slowest shape (~19 MB/s) and is map-bound. Needs a design
+   decision first: serialization key order (today sorted via `std::map`;
+   flat storage = insertion order). Recommend: prototype flat storage +
+   binary search behind the existing API, A/B on object-heavy workloads,
+   decide order semantics with the format tests in place.
+2. **#5 — `from_chars` in `as_double`** if number-ACCESS workloads
+   (Computo-style querying) become real; zero payoff for parse/serialize.
+3. **#8 — arena allocation** only if the profile still shows malloc/free
+   dominance after #7.
 
 ---
 
-*Measurement probe: scratch harness in /tmp (not part of the repo). Profile:
-`perf record` on the probe. All numbers reproducible with a Release build +
-`-O3 -march=native`.*
+*Measurement probe: `tools/perf_probe.cpp` (in-repo; header documents the
+build command and the interleaved-A/B rules). Profile: `sudo perf record -F
+4000 -g` on the probe looped 6x (paranoid=3 blocks unprivileged profiling).
+All numbers reproducible with a Release build + `-O3 -march=native`. The
+google-benchmark suite (`./build-rel/jsom_benchmarks`, `JSOM_BUILD_BENCHMARKS=ON`)
+is the complementary end-to-end harness — note it needed the stale
+`benchmark_dom_access_compat.cpp` construction block repaired (2026-09-09) to
+build at all.*

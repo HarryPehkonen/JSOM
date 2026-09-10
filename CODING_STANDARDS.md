@@ -57,5 +57,11 @@ Reference: https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines
 - [ ] `./build/jsom_tests` — all tests pass
 - [ ] `./build-asan/jsom_tests` — clean under ASan+UBSan
 - [ ] `make tidy` — no NEW clang-tidy findings vs the baseline
+- [ ] Fuzzing: input-handling changes run the fuzz targets briefly
+      (`cmake --build build --target fuzz_quick`); a crash is a bug — fix it,
+      add a regression test, keep the reproducer
+- [ ] Performance: any change to a hot path (parser, serializer, DOM ops) is
+      MEASURED, not assumed — interleaved A/B with `tools/perf_probe.cpp`
+      (see OPTIMIZATIONS.md; sequential before/after runs are noise)
 - [ ] No raw owning pointers / `new` / `reinterpret_cast` introduced
 - [ ] Test written first (RED) for every behavior change or bug fix

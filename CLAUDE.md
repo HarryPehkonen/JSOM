@@ -166,7 +166,11 @@ CODING_STANDARDS.md):
    behavior change or bug fix.
 3. Sanitizer gate: `cmake -B build-asan -DJSOM_SANITIZE=ON && cmake --build
    build-asan -j$(nproc) && ./build-asan/jsom_tests` — clean under ASan+UBSan.
-4. Never introduce raw owning pointers, `new`/`delete`, or
+4. Fuzzing: input-handling changes run the fuzz targets briefly
+   (`cmake --build build --target fuzz_quick`); a crash is a bug, not user
+   error. Performance work is measured before it lands (interleaved A/B with
+   `tools/perf_probe.cpp`; see `OPTIMIZATIONS.md`).
+5. Never introduce raw owning pointers, `new`/`delete`, or
    `reinterpret_cast`/C-style casts.
-5. If a build under these gates fails because of a pre-existing warning, fix
+6. If a build under these gates fails because of a pre-existing warning, fix
    the warning (small, targeted change) rather than weakening the flags.

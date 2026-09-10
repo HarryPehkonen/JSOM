@@ -78,7 +78,7 @@ cmake --build build -j$(nproc)
 ### Build Options
 ```bash
 # Release build with optimizations (from project root)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # (Release is now the DEFAULT)
 cmake --build build -j$(nproc)
 
 # Build with benchmarks enabled (OFF by default)
