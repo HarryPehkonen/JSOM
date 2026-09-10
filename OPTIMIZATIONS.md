@@ -164,12 +164,14 @@ std::string&` overload too. 1 line.
 **Complexity:** none. **Risk:** none (same semantics). **Impact:** modest on
 large-object construction (one null construct + node churn per key).
 
-*(Measured with the probe: #3+#4+#6 together land **within noise** on the
-synthetic short-key/SSO workloads — objects ~652µs vs ~642µs baseline,
-numbers ~250µs vs ~248µs. They remove guaranteed per-token work (key copy +
-type-check per key, locale-table call per digit, null-construct per insert)
-that pays on large real-world documents with long keys; the benchmark cannot
-resolve them. See the new #1b finding for the measurable array bottleneck.)*
+*(Measured. On the synthetic short-key/SSO workloads all three land **within
+noise** (objects ~652µs vs ~642µs baseline). On a REALISTIC workload —
+2000 non-SSO keys ("application_configuration_key_N", 80KB object) — a
+controlled A/B shows #3's move-out at **~809µs vs ~833µs reverted (~3%
+faster)**, consistent across runs. #4/#6 remain unmeasurable in isolation
+(zero API cost, strictly fewer operations — kept on that basis). Original
+estimates for these items (15–25%) were too optimistic by several-fold;
+measured reality is 0–3%. See #1b for the next measurable array win.)*
 
 ---
 
