@@ -425,7 +425,8 @@ endforeach()
 # gtest virtual TestBody functions. Scope: tests target only, GNU < 15 —
 # library and CLI keep the full -Werror set on every compiler.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15
+   AND TARGET jsom_tests)
     target_compile_options(jsom_tests PRIVATE -Wno-maybe-uninitialized)
 endif()
 

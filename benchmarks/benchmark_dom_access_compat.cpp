@@ -78,11 +78,13 @@ static void BM_JSOM_Construction(benchmark::State& state) {
             // NOLINTNEXTLINE(readability-magic-numbers)
             {"salary", jsom::JsonDocument(75000.50)},
             {"active", jsom::JsonDocument(true)},
-            {"tags",
-             jsom::JsonDocument{jsom::JsonDocument("developer"), jsom::JsonDocument("senior")}},
-            {"address", jsom::JsonDocument{{"street", jsom::JsonDocument("123 Main St")},
-                                           // NOLINTNEXTLINE(readability-magic-numbers)
-                                           {"zip", jsom::JsonDocument(12345)}}}};
+            {"tags", jsom::JsonDocument(std::vector<jsom::JsonDocument>{
+                         jsom::JsonDocument("developer"), jsom::JsonDocument("senior")})},
+            {"address",
+             jsom::JsonDocument(std::map<std::string, jsom::JsonDocument>{
+                 {"street", jsom::JsonDocument("123 Main St")},
+                 // NOLINTNEXTLINE(readability-magic-numbers)
+                 {"zip", jsom::JsonDocument(12345)}})}};
 
         benchmark::DoNotOptimize(doc);
     }
