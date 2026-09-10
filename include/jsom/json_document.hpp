@@ -179,6 +179,18 @@ public:
     auto is_bool() const -> bool { return type_ == JsonType::Boolean; }
     auto is_number() const -> bool { return type_ == JsonType::Number; }
     auto is_string() const -> bool { return type_ == JsonType::String; }
+
+    /// Moves the stored string out of this document, leaving it null.
+    /// Parser fast path (object keys, OPTIMIZATIONS.md #3): avoids the copy
+    /// that as<std::string>() would make. Only valid on a String document.
+    auto take_string() -> std::string {
+        validate_type(JsonType::String);
+        std::string out = std::move(std::get<std::string>(storage_));
+        storage_ = std::monostate{};
+        type_ = JsonType::Null;
+        invalidate_cache();
+        return out;
+    }
     auto is_object() const -> bool { return type_ == JsonType::Object; }
     auto is_array() const -> bool { return type_ == JsonType::Array; }
 
@@ -405,7 +417,10 @@ public:
 
     void set(const std::string& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
-        std::get<std::map<std::string, JsonDocument>>(storage_)[key] = std::move(value);
+        // insert_or_assign (not operator[] =): no null-document default
+        // construction before the move-assign (OPTIMIZATIONS.md #6).
+        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(
+            key, std::move(value));
         invalidate_cache();
     }
 

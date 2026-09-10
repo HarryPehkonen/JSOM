@@ -276,3 +276,12 @@ TEST(ImplicitConstructionTest, ImplicitInSet) {
     EXPECT_EQ(obj["age"].as<int>(), 25);
     EXPECT_DOUBLE_EQ(obj["score"].as<double>(), 9.5);
 }
+
+TEST(JsonDocumentTest, TakeStringMovesOut) {
+    // OPTIMIZATIONS.md #3: take_string() moves the stored string out and
+    // leaves the document as null (parser key fast path).
+    JsonDocument d(std::string("hello world"));
+    auto s = d.take_string();
+    EXPECT_EQ(s, "hello world");
+    EXPECT_TRUE(d.is_null());
+}

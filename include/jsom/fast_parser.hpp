@@ -246,11 +246,12 @@ private:
 
         const char* start = data_ + pos_;
 
-        // Fast scan for number end
+        // Fast scan for number end (direct comparisons — std::isdigit is a
+        // locale-table call per character; OPTIMIZATIONS.md #4)
         while (pos_ < size_) {
             // NOLINTNEXTLINE(readability-identifier-length)
             char c = data_[pos_];
-            if ((std::isdigit(c) != 0) || c == '.' || c == 'e' || c == 'E' || c == '+'
+            if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+'
                 || c == '-') {
                 ++pos_;
             } else {
@@ -318,7 +319,7 @@ private:
                 throw std::runtime_error("Expected string key in object");
             }
             auto key_doc = parse_string();
-            auto key = key_doc.as<std::string>();
+            auto key = key_doc.take_string();  // move out — no copy (OPTIMIZATIONS.md #3)
 
             skip_whitespace();
             expect(':');
