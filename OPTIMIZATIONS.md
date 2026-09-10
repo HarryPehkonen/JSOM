@@ -1,7 +1,7 @@
 # JSOM — Performance Optimization Survey
 
-Status: **#1 and #2 IMPLEMENTED (commit `5778292`, 2026-09-09) — #3-#8 still
-proposals.** Everything below that is not marked implemented is still open for
+Status: **#1, #2 IMPLEMENTED (`5778292`) — #3, #4, #6 IMPLEMENTED (`02482aa`,
+measured: within noise on synthetic workloads). #5, #7, #8 still proposals.** Everything below that is not marked implemented is still open for
 evaluation before any code changes land.
 
 ---
@@ -72,6 +72,22 @@ existing pattern rather than introducing a new concept. *(Done in commit
 
 ---
 
+### 1b. parse_array default-constructs a null document per element (NEW, next array win)
+
+**Finding.** With #1 in place, array parse still does
+`set(index++, value)` → `resize(index+1)` **default-constructs a null
+JsonDocument** at each new slot, then move-*assigns* the parsed value over it.
+Per element: one null construction + one move-assign instead of a single
+move-construction. The number-heavy probe (2000-element array) spends a large
+share of its ~250µs here — estimated 25-40% recoverable.
+
+**Fix candidate.** Build arrays with `push_back`/`emplace_back` style growth
+(move-construct in place; vector growth moves are `noexcept`). Requires a
+private/guarded array-builder path (no public API change).
+
+**Complexity:** small. **Risk:** low. **Status:** proposed — needs a TDD perf
+test on the number-array workload (RED first) to confirm the estimate.
+
 ## Tier 2 — small changes, solid wins
 
 ### 2. Default builds compile at -O0 (biggest real-world win) — ✅ IMPLEMENTED
@@ -91,7 +107,7 @@ keep full `-Werror` on all compilers.)*
 **Complexity:** none. **Risk:** none (an explicitly chosen build type still
 wins). **Impact:** 5–20× on all default builds, zero code change.
 
-### 3. Object keys round-trip through a JsonDocument
+### 3. Object keys round-trip through a JsonDocument — ✅ IMPLEMENTED (`02482aa`)
 
 **Finding.** `parse_object` parses each key via `parse_string()` (returns a
 `JsonDocument`), then copies the string out with `key_doc.as<std::string>()`,
@@ -105,7 +121,7 @@ free.
 **Complexity:** small — refactor of an existing private helper; no API change.
 **Risk:** low. **Impact:** ~15–25% on key-heavy objects (estimate; measure).
 
-### 4. Number scan calls `std::isdigit` per character
+### 4. Number scan calls `std::isdigit` per character — ✅ IMPLEMENTED (`02482aa`)
 
 **Finding.** The number-token scan in `parse_number` calls `std::isdigit(c)`
 (plus a compare chain) per character — a locale-table function call in the hot
@@ -134,7 +150,7 @@ follows the same shortest-round-trip rules; verify against the existing number
 test suite. **Impact:** big for workloads that *read* numbers (pointer math,
 queries, comparisons); none for parse-only workloads (numbers are lazy).
 
-### 6. `set(const std::string&, JsonDocument&&)` default-constructs a null first
+### 6. `set(const std::string&, JsonDocument&&)` default-constructs a null first — ✅ IMPLEMENTED (`02482aa`)
 
 **Finding.** The object rvalue path uses `map[key] = std::move(value)`:
 `operator[]` default-constructs a null `JsonDocument` at the key, then
@@ -147,6 +163,13 @@ std::string&` overload too. 1 line.
 
 **Complexity:** none. **Risk:** none (same semantics). **Impact:** modest on
 large-object construction (one null construct + node churn per key).
+
+*(Measured with the probe: #3+#4+#6 together land **within noise** on the
+synthetic short-key/SSO workloads — objects ~652µs vs ~642µs baseline,
+numbers ~250µs vs ~248µs. They remove guaranteed per-token work (key copy +
+type-check per key, locale-table call per digit, null-construct per insert)
+that pays on large real-world documents with long keys; the benchmark cannot
+resolve them. See the new #1b finding for the measurable array bottleneck.)*
 
 ---
 
