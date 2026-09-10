@@ -1,7 +1,7 @@
 # JSOM — Performance Optimization Survey
 
-Status: **#1, #2 IMPLEMENTED (`5778292`) — #3, #4, #6 IMPLEMENTED (`02482aa`,
-measured: within noise on synthetic workloads). #5, #7, #8 still proposals.** Everything below that is not marked implemented is still open for
+Status: **#1, #1b, #2 IMPLEMENTED (`5778292`, `a343ce1`) — #3, #4, #6
+IMPLEMENTED (`02482aa`). #5, #7, #8 still proposals.** Everything below that is not marked implemented is still open for
 evaluation before any code changes land.
 
 ---
@@ -72,7 +72,7 @@ existing pattern rather than introducing a new concept. *(Done in commit
 
 ---
 
-### 1b. parse_array default-constructs a null document per element (NEW, next array win)
+### 1b. parse_array default-constructs a null document per element — ✅ IMPLEMENTED (`a343ce1`)
 
 **Finding.** With #1 in place, array parse still does
 `set(index++, value)` → `resize(index+1)` **default-constructs a null
@@ -85,8 +85,12 @@ share of its ~250µs here — estimated 25-40% recoverable.
 (move-construct in place; vector growth moves are `noexcept`). Requires a
 private/guarded array-builder path (no public API change).
 
-**Complexity:** small. **Risk:** low. **Status:** proposed — needs a TDD perf
-test on the number-array workload (RED first) to confirm the estimate.
+**Complexity:** very small (no new API — `push_back` already existed). **Risk:**
+low. **Status:** ✅ implemented. **Measured A/B** (interleaved, 3 rounds, tight
+spread — ~0.3% run-to-run): numbers 108.7→98.4 ms (**−9.5%**), strings
+64.2→56.8 ms (**−11.5%**), deep-300 10.1→8.5 ms (**−16.1%**). Estimate
+(25–40%) was optimistic again — reality ~10–16% — but this one is solidly
+above noise and reproducible.
 
 ## Tier 2 — small changes, solid wins
 
