@@ -31,6 +31,7 @@ A fast, modern C++17 library for working with JSON data in memory. Features lazy
 - **Comparison operators** - Full set of `==`, `!=`, `<`, `>`, `<=`, `>=` with deep structural comparison
 - **Comment-tolerant parsing** - Optional `//` and `/* */` comment support for config files
 - **Streaming parsing** - Event-based `StreamingParser` with JSON Pointer paths for incremental input
+- **Bounded recursion** - Every traversal is depth-limited (default 256, tunable), so no input can exhaust the stack
 
 ## Performance
 
@@ -675,6 +676,73 @@ CLI support:
 ./build/jsom format --comments config.jsonc
 ./build/jsom validate --comments config.jsonc
 ```
+
+## Resource Limits (RFC 8259 §9)
+
+RFC 8259 §9 says an implementation *may* set limits on the size of texts it accepts
+and on the maximum depth of nesting. JSOM sets the depth limit deliberately.
+
+The reason is that recursion cannot fail gracefully. A deeply nested document used to
+exhaust the C++ stack and kill the process — SIGSEGV, not an exception, so nothing
+could catch it, and on a 1 MB worker-thread stack about 3 KB of `[` was enough.
+Measured 2026-09-16 (gcc, x86-64) before the guard existed:
+
+| input | 8 MB main-thread stack | 1 MB worker-thread stack |
+|---|---|---|
+| 20,000 nested arrays | parses | dies (~3,000 levels) |
+| 24,000 nested arrays | dies | dies |
+| 100,000 `[`, closers not needed | dies | dies |
+
+So the bound is taken on the way *in*, and every traversal honours it: parsing,
+serialization (compact and pretty), comparison and path listing all refuse a document
+deeper than the limit, with
+
+```text
+std::runtime_error: Maximum nesting depth exceeded (limit 256)
+```
+
+### Choosing your limit
+
+The default is 256, which fits in a 1 MB thread stack with ~7x headroom. The cost is
+per nesting level and was measured; the worst case is an unoptimised debug build:
+
+| path | -O2 | -O0 |
+|---|---|---|
+| parse | 291 B | 323 B |
+| compare | 64 B | 323 B |
+| serialize (compact) | 533 B | 565 B |
+
+Budget ~0.6 KB per level (roughly double under AddressSanitizer) and pick from the
+smallest stack you run on:
+
+```cpp
+JsonParseOptions options;
+options.max_depth = 64;                    // e.g. a small dedicated worker thread
+auto doc = parse_document(json, options);  // 64 levels ≈ 40 KB, worst case
+```
+
+The guard itself costs one comparison per container: measured at ~1.7% on a 200-deep
+document (70.4 vs 69.2 ns per level) and within noise on realistic shapes — see
+"Depth guard" in `OPTIMIZATIONS.md`.
+
+**One asymmetry worth knowing:** `max_depth` tunes *parsing*. The traversal bound
+(serialize, compare, path listing) is the fixed compile-time constant, so raising
+`max_depth` above `limits::MAX_NESTING_DEPTH` lets you parse documents that those
+operations will then refuse to serialize or compare. Lowering it is the supported
+direction; if you need deep documents end to end, raise the constant itself and accept
+the stack cost that implies.
+
+No file the RFC 8259 conformance suite requires us to *accept* nests deeper than 3
+levels, so 256 is far more generous than real data. The deepest case the suite
+exercises at all — `i_structure_500_nested_arrays.json`, where the suite explicitly
+abstains — is now rejected by policy; raise `max_depth` if you want it.
+
+### What is not bounded
+
+The depth limit bounds *recursion*. It does not bound heap or CPU: JSOM still
+allocates in proportion to the text it accepts, because a library cannot know how much
+memory its caller intends to spend. Set that bound at your trust boundary (cap request
+bodies, or check the size before parsing) — RFC 8259 §9 permits it there too.
 
 ## Testing
 

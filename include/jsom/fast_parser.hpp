@@ -17,6 +17,25 @@ private:
     size_t pos_;
     JsonParseOptions options_;
 
+    /// The slow path, deliberately kept out of the inline check: the guard on the hot
+    /// path is then one compare and a branch, and nothing to do with the error string
+    /// is set up on the way through.
+    [[noreturn]] static void throw_depth_error(int limit) {
+        throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                                 + std::to_string(limit) + ")");
+    }
+
+    /// Current nesting level (1 = outermost container). Bounded so no input can exhaust
+    /// the C++ stack: see limits::MAX_NESTING_DEPTH for the calibration, and the
+    /// guard_cost200 measurement in OPTIMIZATIONS.md for why this is a member rather
+    /// than a threaded argument (a member is ~1.5%; passing the level down the mutual
+    /// recursion cost ~18% on a 200-deep document).
+    ///
+    /// INVARIANT: every normal return from parse_object()/parse_array() decrements it,
+    /// and parse() resets it. A throw abandons the whole parse, so a counter left high
+    /// by an exception cannot leak into the next document.
+    int depth_ = 0;
+
     // Pre-allocated buffers to avoid reallocations
     std::string string_buffer_;
     std::string number_buffer_;
@@ -300,6 +319,11 @@ private:
     // Fast object parsing with direct building
     // NOLINTBEGIN(readability-function-size)
     auto parse_object() -> JsonDocument {
+        // Bounded on the way IN: a stack overflow cannot be caught, so the check has to
+        // happen before the recursion, not after it.
+        if (++depth_ > options_.max_depth) {
+            throw_depth_error(options_.max_depth);
+        }
         expect('{');
         skip_whitespace();
 
@@ -308,6 +332,7 @@ private:
 
         if (peek() == '}') {
             advance();
+            --depth_;
             return result;
         }
 
@@ -339,6 +364,7 @@ private:
             }
         }
 
+        --depth_;
         return result;
     }
     // NOLINTEND(readability-function-size)
@@ -346,6 +372,9 @@ private:
     // Fast array parsing with direct building
     // NOLINTBEGIN(readability-function-size)
     auto parse_array() -> JsonDocument {
+        if (++depth_ > options_.max_depth) {
+            throw_depth_error(options_.max_depth);
+        }
         expect('[');
         skip_whitespace();
 
@@ -354,6 +383,7 @@ private:
 
         if (peek() == ']') {
             advance();
+            --depth_;
             return result;
         }
 
@@ -377,6 +407,7 @@ private:
             }
         }
 
+        --depth_;
         return result;
     }
     // NOLINTEND(readability-function-size)
@@ -423,6 +454,7 @@ public:
         data_ = json.data();
         size_ = json.size();
         pos_ = 0;
+        depth_ = 0; // a parser instance may be reused for another document
 
         // Pre-allocate buffers
         string_buffer_.reserve(parser_constants::STRING_BUFFER_PARSE_SIZE);
@@ -434,6 +466,7 @@ public:
         }
 
         auto result = parse_value();
+
 
         skip_whitespace();
         if (pos_ < size_) {

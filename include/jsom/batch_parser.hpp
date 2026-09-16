@@ -14,6 +14,19 @@ private:
     std::stack<JsonDocument*> container_stack_;
     bool has_root_{false};
 
+    /// The streaming path assembles the document iteratively (no C++ stack per level),
+    /// so it cannot overflow — but it must still honour the same contract as every
+    /// other entry point, or "how deep a document may be" would depend on which parser
+    /// you called. Depth is the JSON Pointer's segment count; a literal '/' inside a key
+    /// is escaped as ~1, so counting separators is exact.
+    static void check_nesting_depth(const std::string& path) {
+        const auto depth = static_cast<int>(std::count(path.begin(), path.end(), '/')) + 1;
+        if (depth > limits::MAX_NESTING_DEPTH) {
+            throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                                     + std::to_string(limits::MAX_NESTING_DEPTH) + ")");
+        }
+    }
+
     auto get_current_container() -> JsonDocument* {
         if (container_stack_.empty()) {
             return &root_;
@@ -34,6 +47,7 @@ public:
     }
 
     void on_enter_object(const std::string& path) {
+        check_nesting_depth(path);
         JsonDocument obj(std::initializer_list<std::pair<const std::string, JsonDocument>>{});
         if (path.empty()) {
             root_ = obj;
@@ -44,6 +58,7 @@ public:
     }
 
     void on_enter_array(const std::string& path) {
+        check_nesting_depth(path);
         JsonDocument arr(std::vector<JsonDocument>{});
         if (path.empty()) {
             root_ = arr;

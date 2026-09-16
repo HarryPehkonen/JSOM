@@ -104,6 +104,13 @@ TEST_F(PerformanceRegressionTest, DeepNestingParseIsLinear) {
     // overload the same document parses in ~1ms. The generous 100ms ceiling
     // separates the two by two orders of magnitude while staying immune to
     // machine and -O0 variance.
+    //
+    // 3000 levels is far past the default nesting limit (limits::MAX_NESTING_DEPTH),
+    // so the limit is raised here on purpose: this test is about the asymptotic cost
+    // of depth, and a test-thread stack has room for 3000 levels (~1 MB measured).
+    JsonParseOptions options;
+    options.max_depth = 3000;
+
     std::string json;
     for (int i = 0; i < 3000; ++i) {
         json += '[';
@@ -114,7 +121,7 @@ TEST_F(PerformanceRegressionTest, DeepNestingParseIsLinear) {
     }
 
     double time_ms = measure_time_ms([&]() {
-        auto doc = parse_document(json);
+        auto doc = parse_document(json, options);
         (void)doc;
     });
 

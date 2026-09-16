@@ -1,12 +1,14 @@
 #pragma once
 
+#include "constants.hpp"
+
 namespace jsom {
 
 /**
  * Configuration options for JSON parsing behavior.
  *
  * This structure provides control over how JSON is parsed,
- * including Unicode escape sequence handling.
+ * including Unicode escape sequence handling and resource limits.
  */
 struct JsonParseOptions {
     /// Convert Unicode escape sequences (\uXXXX) to actual UTF-8 characters
@@ -18,6 +20,19 @@ struct JsonParseOptions {
     /// When false (default): Strict JSON parsing, comments are syntax errors
     /// When true: Skips // line comments and /* block comments */
     bool allow_comments = false;
+
+    /// Deepest nesting accepted. Input nested deeper is rejected with
+    /// "Maximum nesting depth exceeded" rather than exhausting the C++ stack —
+    /// a stack overflow cannot be caught, so this bound is what keeps parsing a
+    /// total function on hostile input (RFC 8259 §9 explicitly permits it).
+    ///
+    /// Lower it for a small-stack thread; raise it only with the stack to match
+    /// (~0.6 KB per level, ≈2x under sanitizers). The default is safe in a 1 MB
+    /// thread stack: see the calibration table in README "Resource limits".
+    /// Note the asymmetry: traversals (serialize, compare, path listing) are bounded by
+    /// limits::MAX_NESTING_DEPTH, so raising max_depth past that lets you parse documents
+    /// those operations will then refuse. Lowering is the supported direction.
+    int max_depth = limits::MAX_NESTING_DEPTH;
 };
 
 /**
@@ -40,17 +55,20 @@ public:
  */
 inline const JsonParseOptions ParsePresets::Default = {
     false, // convert_unicode_escapes
-    false  // allow_comments
+    false, // allow_comments
+    limits::MAX_NESTING_DEPTH // max_depth
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
     true, // convert_unicode_escapes
-    false // allow_comments
+    false, // allow_comments
+    limits::MAX_NESTING_DEPTH // max_depth
 };
 
 inline const JsonParseOptions ParsePresets::Comments = {
     false, // convert_unicode_escapes
-    true   // allow_comments
+    true,  // allow_comments
+    limits::MAX_NESTING_DEPTH // max_depth
 };
 
 } // namespace jsom

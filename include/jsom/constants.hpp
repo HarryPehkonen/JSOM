@@ -7,6 +7,41 @@
 
 namespace jsom {
 
+// ================================
+// Resource limits (RFC 8259 §9)
+// ================================
+// "An implementation may set limits on the size of texts that it accepts. An
+// implementation may set limits on the maximum depth of nesting. …"
+//
+// JSOM's recursion is bounded by these constants. The alternative is a stack
+// overflow, which cannot be caught with try/catch and kills the whole process, so
+// no amount of downstream error handling can compensate: the bound has to be taken
+// on the way in, and every traversal has to honour it. See README "Resource limits"
+// and CONFORMANCE.md Finding 1.
+namespace limits {
+
+// Deepest nesting any JSOM operation will accept or traverse. Chosen from
+// MEASUREMENT, not taste — stack cost per nesting level, measured 2026-09-16 with
+// gcc on x86-64 (worst case is the unoptimised debug build):
+//
+//     path                  -O2     -O0
+//     parse                 291 B   323 B
+//     compare               64 B    323 B
+//     serialize (compact)   533 B   565 B
+//
+// At 256 levels the worst case is ~145 KB, so every operation fits in a 1 MB thread
+// stack with ~7x headroom and in 512 KB with ~3.5x. Raising this raises the stack
+// requirement proportionally (~0.6 KB per level, roughly double under
+// AddressSanitizer). Nothing in the RFC 8259 conformance suite nests deeper than
+// 500, and no file the suite requires us to ACCEPT nests deeper than 3.
+constexpr int MAX_NESTING_DEPTH = 256;
+
+// One message for every depth guard, so callers can match on a single substring
+// regardless of which path refused the document.
+inline constexpr std::string_view MAX_NESTING_DEPTH_MESSAGE = "Maximum nesting depth exceeded";
+
+} // namespace limits
+
 // CLI Constants
 namespace cli_constants {
 
@@ -55,7 +90,11 @@ constexpr int DEFAULT_MAX_INLINE_OBJECT_SIZE = 3;
 constexpr int DEFAULT_MAX_INLINE_STRING_LENGTH = 40;
 constexpr int DEFAULT_MAX_LINE_WIDTH = 120;
 constexpr int DEFAULT_COLON_SPACING = 1;
-constexpr int DEFAULT_MAX_DEPTH = 100;
+// Printing depth shares the nesting limit: a document JSOM accepts must be a
+// document JSOM can print. (This guard predates the parse-time limit and used to be
+// 100 — it refused documents the parser happily accepted, which is exactly the kind
+// of inconsistency that makes a limit feel arbitrary.)
+constexpr int DEFAULT_MAX_DEPTH = limits::MAX_NESTING_DEPTH;
 
 // Preset-specific values
 constexpr int PRETTY_INLINE_ARRAY_SIZE = 8;

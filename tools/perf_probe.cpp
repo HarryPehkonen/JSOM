@@ -95,7 +95,7 @@ int main() {
     const auto num_json = make_number_heavy(2000);
     const auto str_json = make_string_heavy(1000);
     const auto obj_json = make_object_heavy(2000);
-    const auto deep_json = make_deep(300);
+    const auto deep_json = make_deep(200); // stays inside the default nesting limit (256)
     printf("inputs: num=%zuB str=%zuB obj=%zuB deep=%zuB\n\n", num_json.size(), str_json.size(),
            obj_json.size(), deep_json.size());
 
@@ -111,7 +111,7 @@ int main() {
         auto d = parse_document(obj_json);
         return d.size();
     });
-    bench("parse deep 300", 400, [&] {
+    bench("parse deep 200", 400, [&] {
         auto d = parse_document(deep_json);
         return d.size();
     });

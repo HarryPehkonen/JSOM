@@ -145,6 +145,9 @@ add_executable(jsom_tests
 
     # Comment-tolerant parsing tests
     tests/test_comments.cpp              # // and /* */ comment support
+
+    # Nesting-depth limit tests (RFC 8259 §9 resource limits)
+    tests/test_nesting_limits.cpp        # no input may exhaust the stack
 )
 
 target_link_libraries(jsom_tests

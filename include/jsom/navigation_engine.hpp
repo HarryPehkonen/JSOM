@@ -244,6 +244,14 @@ private:
                                           std::vector<std::string>& paths, int current_depth,
                                           int max_depth) {
 
+        // Hard safety bound: `max_depth` is a caller filter ("stop descending here"),
+        // so without this a document deeper than the nesting limit would recurse
+        // unbounded — the same stack overflow the parser refuses.
+        if (current_depth > limits::MAX_NESTING_DEPTH) {
+            throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                                     + std::to_string(limits::MAX_NESTING_DEPTH) + ")");
+        }
+
         // Add current path
         paths.push_back(current_path);
 

@@ -507,9 +507,125 @@ private:
     auto get_path_cache() const -> PathCache&;
     // Invalidate path cache after structural mutations
     void invalidate_cache();
+    /// One check for every traversal in this class: refuse to recurse past the
+    /// documented nesting limit rather than overflowing the stack. `level` is the
+    /// node's own level, counting the root as 1 — the same convention the parser uses,
+    /// so a document that parsed is a document that serializes and compares.
+    static void check_traversal_depth(int level) {
+        if (level > limits::MAX_NESTING_DEPTH) {
+            throw_depth_error();
+        }
+    }
+
+    /// Slow path, kept out of the inline check so a traversal costs one compare.
+    [[noreturn]] static void throw_depth_error() {
+        throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                                 + std::to_string(limits::MAX_NESTING_DEPTH) + ")");
+    }
+
+    /// Equality with an explicit nesting level. It cannot delegate to
+    /// std::vector/std::map's own operator==, which has no depth budget: that is what
+    /// used to overflow the stack (measured 2026-09-16: comparing two 20,000-deep
+    /// documents kills a 1 MB stack, with no parsing involved at all). Level counts
+    /// the root as 1, the same convention the parser uses.
+    [[nodiscard]] auto equals_at(const JsonDocument& other, int level) const -> bool {
+        check_traversal_depth(level);
+        if (type_ != other.type_) {
+            return false;
+        }
+        switch (type_) {
+        case JsonType::Null:
+            return true;
+        case JsonType::Boolean:
+            return std::get<bool>(storage_) == std::get<bool>(other.storage_);
+        case JsonType::Number:
+            return std::get<LazyNumber>(storage_) == std::get<LazyNumber>(other.storage_);
+        case JsonType::String:
+            return std::get<std::string>(storage_) == std::get<std::string>(other.storage_);
+        case JsonType::Array: {
+            const auto& lhs = std::get<std::vector<JsonDocument>>(storage_);
+            const auto& rhs = std::get<std::vector<JsonDocument>>(other.storage_);
+            if (lhs.size() != rhs.size()) {
+                return false;
+            }
+            for (size_t i = 0; i < lhs.size(); ++i) {
+                if (!lhs[i].equals_at(rhs[i], level + 1)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        case JsonType::Object: {
+            const auto& lhs = std::get<std::map<std::string, JsonDocument>>(storage_);
+            const auto& rhs = std::get<std::map<std::string, JsonDocument>>(other.storage_);
+            if (lhs.size() != rhs.size()) {
+                return false;
+            }
+            auto lhs_it = lhs.begin();
+            auto rhs_it = rhs.begin();
+            for (; lhs_it != lhs.end(); ++lhs_it, ++rhs_it) {
+                if (lhs_it->first != rhs_it->first
+                    || !lhs_it->second.equals_at(rhs_it->second, level + 1)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        }
+        return false;
+    }
+
+    /// Ordering with an explicit nesting level, for the same reason as equals_at.
+    [[nodiscard]] auto less_at(const JsonDocument& other, int level) const -> bool {
+        check_traversal_depth(level);
+        if (type_ != other.type_) {
+            return static_cast<uint8_t>(type_) < static_cast<uint8_t>(other.type_);
+        }
+        switch (type_) {
+        case JsonType::Null:
+            return false; // null == null, never less
+        case JsonType::Boolean:
+            return !std::get<bool>(storage_) && std::get<bool>(other.storage_); // false < true
+        case JsonType::Number:
+            return std::get<LazyNumber>(storage_) < std::get<LazyNumber>(other.storage_);
+        case JsonType::String:
+            return std::get<std::string>(storage_) < std::get<std::string>(other.storage_);
+        case JsonType::Array: {
+            const auto& lhs = std::get<std::vector<JsonDocument>>(storage_);
+            const auto& rhs = std::get<std::vector<JsonDocument>>(other.storage_);
+            const size_t common = lhs.size() < rhs.size() ? lhs.size() : rhs.size();
+            for (size_t i = 0; i < common; ++i) {
+                if (!lhs[i].equals_at(rhs[i], level + 1)) {
+                    return lhs[i].less_at(rhs[i], level + 1);
+                }
+            }
+            return lhs.size() < rhs.size();
+        }
+        case JsonType::Object: {
+            const auto& lhs = std::get<std::map<std::string, JsonDocument>>(storage_);
+            const auto& rhs = std::get<std::map<std::string, JsonDocument>>(other.storage_);
+            auto lhs_it = lhs.begin();
+            auto rhs_it = rhs.begin();
+            while (lhs_it != lhs.end() && rhs_it != rhs.end()) {
+                if (lhs_it->first != rhs_it->first) {
+                    return lhs_it->first < rhs_it->first;
+                }
+                if (!lhs_it->second.equals_at(rhs_it->second, level + 1)) {
+                    return lhs_it->second.less_at(rhs_it->second, level + 1);
+                }
+                ++lhs_it;
+                ++rhs_it;
+            }
+            return lhs.size() < rhs.size();
+        }
+        }
+        return false;
+    }
+
     // Highly optimized string-based serialization
     // NOLINTBEGIN(readability-function-size)
-    void serialize_compact_to_string(std::string& out) const {
+    void serialize_compact_to_string(std::string& out, int level = 1) const {
+        check_traversal_depth(level);
         switch (type_) {
         case JsonType::Null:
             out += "null";
@@ -535,17 +651,18 @@ private:
             out += '"';
             break;
         case JsonType::Object:
-            serialize_object_compact_to_string(out);
+            serialize_object_compact_to_string(out, level);
             break;
         case JsonType::Array:
-            serialize_array_compact_to_string(out);
+            serialize_array_compact_to_string(out, level);
             break;
         }
     }
     // NOLINTEND(readability-function-size)
 
     // Optimized compact serialization (no pretty printing overhead)
-    void serialize_compact(std::ostream& out) const {
+    void serialize_compact(std::ostream& out, int level = 1) const {
+        check_traversal_depth(level);
         switch (type_) {
         case JsonType::Null:
             out << "null";
@@ -562,15 +679,15 @@ private:
             out << '"';
             break;
         case JsonType::Object:
-            serialize_object_compact(out);
+            serialize_object_compact(out, level);
             break;
         case JsonType::Array:
-            serialize_array_compact(out);
+            serialize_array_compact(out, level);
             break;
         }
     }
 
-    void serialize_object_to(std::ostream& out, bool pretty, int indent) const {
+    void serialize_object_to(std::ostream& out, bool pretty, int indent, int level) const {
         const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
         out << '{';
         bool first = true;
@@ -587,7 +704,7 @@ private:
             if (pretty) {
                 out << ' ';
             }
-            value.serialize_to(out, pretty, indent + 1);
+            value.serialize_value(out, pretty, indent + 1, level + 1);
             first = false;
         }
         if (pretty && !obj.empty()) {
@@ -596,7 +713,7 @@ private:
         out << '}';
     }
 
-    void serialize_object_compact_to_string(std::string& out) const {
+    void serialize_object_compact_to_string(std::string& out, int level) const {
         const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
         out += '{';
         bool first = true;
@@ -607,13 +724,13 @@ private:
             out += '"';
             escape_string_to_string(out, key);
             out += "\":";
-            value.serialize_compact_to_string(out);
+            value.serialize_compact_to_string(out, level + 1);
             first = false;
         }
         out += '}';
     }
 
-    void serialize_array_compact_to_string(std::string& out) const {
+    void serialize_array_compact_to_string(std::string& out, int level) const {
         const auto& arr = std::get<std::vector<JsonDocument>>(storage_);
         out += '[';
         bool first = true;
@@ -621,13 +738,13 @@ private:
             if (!first) {
                 out += ',';
             }
-            value.serialize_compact_to_string(out);
+            value.serialize_compact_to_string(out, level + 1);
             first = false;
         }
         out += ']';
     }
 
-    void serialize_object_compact(std::ostream& out) const {
+    void serialize_object_compact(std::ostream& out, int level) const {
         const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
         out << '{';
         bool first = true;
@@ -638,13 +755,13 @@ private:
             out << '"';
             escape_string(out, key);
             out << "\":";
-            value.serialize_compact(out);
+            value.serialize_compact(out, level + 1);
             first = false;
         }
         out << '}';
     }
 
-    void serialize_array_compact(std::ostream& out) const {
+    void serialize_array_compact(std::ostream& out, int level) const {
         const auto& arr = std::get<std::vector<JsonDocument>>(storage_);
         out << '[';
         bool first = true;
@@ -652,13 +769,13 @@ private:
             if (!first) {
                 out << ',';
             }
-            value.serialize_compact(out);
+            value.serialize_compact(out, level + 1);
             first = false;
         }
         out << ']';
     }
 
-    void serialize_array_to(std::ostream& out, bool pretty, int indent) const {
+    void serialize_array_to(std::ostream& out, bool pretty, int indent, int level) const {
         const auto& arr = std::get<std::vector<JsonDocument>>(storage_);
         out << '[';
         bool first = true;
@@ -669,7 +786,7 @@ private:
             if (pretty) {
                 out << '\n' << std::string(static_cast<size_t>((indent + 1) * 2), ' ');
             }
-            value.serialize_to(out, pretty, indent + 1);
+            value.serialize_value(out, pretty, indent + 1, level + 1);
             first = false;
         }
         if (pretty && !arr.empty()) {
@@ -678,8 +795,10 @@ private:
         out << ']';
     }
 
-public:
-    void serialize_to(std::ostream& out, bool pretty, int indent = 0) const {
+    /// Pretty/indented serialization with an explicit nesting level: bounded by
+    /// limits::MAX_NESTING_DEPTH like every other traversal.
+    void serialize_value(std::ostream& out, bool pretty, int indent, int level) const {
+        check_traversal_depth(level);
         switch (type_) {
         case JsonType::Null:
             out << "null";
@@ -696,12 +815,17 @@ public:
             out << '"';
             break;
         case JsonType::Object:
-            serialize_object_to(out, pretty, indent);
+            serialize_object_to(out, pretty, indent, level);
             break;
         case JsonType::Array:
-            serialize_array_to(out, pretty, indent);
+            serialize_array_to(out, pretty, indent, level);
             break;
         }
+    }
+
+public:
+    void serialize_to(std::ostream& out, bool pretty, int indent = 0) const {
+        serialize_value(out, pretty, indent, 1);
     }
 
     // NOLINTBEGIN(readability-function-size)
@@ -828,26 +952,7 @@ public:
 
 // NOLINTBEGIN(readability-function-size)
 inline auto operator==(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
-    if (lhs.type_ != rhs.type_) {
-        return false;
-    }
-    switch (lhs.type_) {
-    case JsonType::Null:
-        return true;
-    case JsonType::Boolean:
-        return std::get<bool>(lhs.storage_) == std::get<bool>(rhs.storage_);
-    case JsonType::Number:
-        return std::get<LazyNumber>(lhs.storage_) == std::get<LazyNumber>(rhs.storage_);
-    case JsonType::String:
-        return std::get<std::string>(lhs.storage_) == std::get<std::string>(rhs.storage_);
-    case JsonType::Array:
-        return std::get<std::vector<JsonDocument>>(lhs.storage_)
-               == std::get<std::vector<JsonDocument>>(rhs.storage_);
-    case JsonType::Object:
-        return std::get<std::map<std::string, JsonDocument>>(lhs.storage_)
-               == std::get<std::map<std::string, JsonDocument>>(rhs.storage_);
-    }
-    return false;
+    return lhs.equals_at(rhs, 1);
 }
 
 inline auto operator!=(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
@@ -855,26 +960,7 @@ inline auto operator!=(const JsonDocument& lhs, const JsonDocument& rhs) -> bool
 }
 
 inline auto operator<(const JsonDocument& lhs, const JsonDocument& rhs) -> bool {
-    if (lhs.type_ != rhs.type_) {
-        return static_cast<uint8_t>(lhs.type_) < static_cast<uint8_t>(rhs.type_);
-    }
-    switch (lhs.type_) {
-    case JsonType::Null:
-        return false; // null == null, never less
-    case JsonType::Boolean:
-        return !std::get<bool>(lhs.storage_) && std::get<bool>(rhs.storage_); // false < true
-    case JsonType::Number:
-        return std::get<LazyNumber>(lhs.storage_) < std::get<LazyNumber>(rhs.storage_);
-    case JsonType::String:
-        return std::get<std::string>(lhs.storage_) < std::get<std::string>(rhs.storage_);
-    case JsonType::Array:
-        return std::get<std::vector<JsonDocument>>(lhs.storage_)
-               < std::get<std::vector<JsonDocument>>(rhs.storage_);
-    case JsonType::Object:
-        return std::get<std::map<std::string, JsonDocument>>(lhs.storage_)
-               < std::get<std::map<std::string, JsonDocument>>(rhs.storage_);
-    }
-    return false;
+    return lhs.less_at(rhs, 1);
 }
 // NOLINTEND(readability-function-size)
 

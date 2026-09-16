@@ -230,10 +230,42 @@ complexity. **Defer** until items 1–7 land and the profile is re-measured.
 
 ---
 
+## Depth guard (2026-09-16) — the cost of not dying
+
+Bounding recursion (CONFORMANCE.md Finding 1) adds one comparison per container.
+Measured on a 200-deep array: best of 7 inner rounds, 3,000 iterations, three builds
+compiled from the same source and interleaved in one session (`-O3 -march=native`,
+Release lib):
+
+| build | ns per nesting level | vs baseline |
+|---|---|---|
+| baseline (no guard) | 69.2 | — |
+| **guard via a member counter** | **70.4–70.8** | **+1.7%** |
+| guard via a threaded `level` argument | 81.7–82.3 | +18.3% |
+
+The first implementation threaded the level down the mutual recursion as a parameter —
+the shape the traversal guards use, where it costs nothing — and in the parser that
+extra argument costs ~12 ns per level, presumably by changing inlining and register
+allocation across `parse_value` ↔ `parse_array`/`parse_object`. A member counter
+(`++depth_` / `--depth_`, reset in `parse()`) measured ~1.7%, so that is what landed.
+
+Shape matters more than the average: a pathological deep document spends ~70 ns per
+level in total, so 1.5 ns is 2% there, while for realistic documents (depth ≤ 10) the
+guard is unmeasurable against the work of parsing real content — the
+`tools/perf_probe.cpp` A/B on number/string/object shapes stayed within noise (±3%).
+
+The invariant that makes the counter safe: every normal return from `parse_object()` /
+`parse_array()` decrements it, including the early return for an empty container, and
+`parse()` resets it. A missed early return leaks one level per empty container — pinned
+by `NestingLimitTest.EmptyContainersDoNotConsumeTheNestingBudget`.
+
+---
+
 ## Status summary / what remains
 
 **Done:** #1 (76× deep nesting), #1b (−9.5/−11.5/−16.1% arrays), #2 (Release
-default), #3/#4/#6 (0–3%, behavior-neutral cleanups).
+default), #3/#4/#6 (0–3%, behavior-neutral cleanups), depth guard for hostile
+input (+1.7% on the deep path — see the section above).
 **Remaining, in priority order:**
 1. **#7 — object storage (`std::map`).** The last measured wall: object parse
    is now the slowest shape (~19 MB/s) and is map-bound. Needs a design
