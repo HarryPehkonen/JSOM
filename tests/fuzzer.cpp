@@ -21,6 +21,20 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // Test serialization (if parse succeeded)
         std::string output = doc.to_json();
 
+        // ROUND-TRIP ORACLE: what we serialize must parse back to the same
+        // document. Without this, formatter and round-trip bugs are only ever
+        // found if they happen to crash — a wrong answer never crashes.
+        // Deliberately OUTSIDE the "expected failure" path: the input was
+        // accepted, so a throw here is itself a bug.
+        {
+            auto reparsed = jsom::parse_document(output);
+            if (!(reparsed == doc)) {
+                std::cerr << "ROUND-TRIP MISMATCH\n  in:  " << json_input
+                          << "\n  out: " << output << "\n";
+                std::abort();
+            }
+        }
+
         // Test different formatting options
         if (size < 10000) { // Only for smaller inputs to avoid timeout
             doc.to_json(jsom::FormatPresets::Compact);
