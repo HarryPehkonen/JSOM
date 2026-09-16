@@ -330,36 +330,75 @@ if(CLANG_PLUS_PLUS)
     # Quick fuzzing (1 minute)
     add_custom_target(fuzz_quick
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=60
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+                -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
+                -artifact_prefix=corpus/
+                -max_total_time=60
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running quick fuzz test (1 minute)"
     )
-    
+
     # Standard fuzzing (10 minutes)
     add_custom_target(fuzz
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=600
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+                -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
+                -artifact_prefix=corpus/
+                -max_total_time=600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running standard fuzz test (10 minutes)"
     )
-    
+
     # Long fuzzing (1 hour)
     add_custom_target(fuzz_long
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds -max_total_time=3600
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+                -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
+                -artifact_prefix=corpus/
+                -max_total_time=3600
         DEPENDS build_fuzzer
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running extended fuzz test (1 hour)"
     )
-    
+
     message(STATUS "Fuzzing available - use 'make fuzz' for 10-minute test, 'make fuzz_long' for 1-hour test")
 else()
     add_custom_target(fuzz
         COMMAND ${CMAKE_COMMAND} -E echo "clang++ not found - install for fuzzing support"
     )
 endif()
+
+# ================================
+# RFC 8259 conformance suite
+# ================================
+# Corpus: third_party/json_test_suite (nst/JSONTestSuite, MIT, (c) 2016 Nicolas Seriot).
+# y_* must be accepted, n_* must be rejected, i_* is the suite abstaining.
+# A failure here is a conformance bug, not a flaky test, so this target exits
+# non-zero — which is why it is deliberately NOT part of the default build: run
+# it with `cmake --build build --target run_conformance`.
+add_executable(jsom_conformance
+    tools/conformance_runner.cpp
+    src/json_document_pointer.cpp
+    src/json_document_formatting.cpp
+)
+target_include_directories(jsom_conformance PRIVATE include)
+target_compile_options(jsom_conformance PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_custom_target(run_conformance
+    COMMAND jsom_conformance ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json_test_suite
+    DEPENDS jsom_conformance
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Running the RFC 8259 conformance suite (failures are conformance bugs)"
+)
+
+add_custom_target(conformance_report
+    COMMAND jsom_conformance ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json_test_suite --list
+    DEPENDS jsom_conformance
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Conformance verdict including the i_ decisions the spec leaves open"
+)
 
 # Valgrind memory checking
 if(VALGRIND)
