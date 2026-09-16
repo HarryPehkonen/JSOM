@@ -33,6 +33,24 @@ struct JsonParseOptions {
     /// limits::MAX_NESTING_DEPTH, so raising max_depth past that lets you parse documents
     /// those operations will then refuse. Lowering is the supported direction.
     int max_depth = limits::MAX_NESTING_DEPTH;
+
+    /// Validate numbers against the RFC 8259 grammar while scanning, rejecting `-01`,
+    /// `1.0.`, `2.e+3`, `0e+`, `[-]` and friends with "Invalid number: …".
+    ///
+    /// Off by default, deliberately, and it is a policy rather than an oversight: with
+    /// validation off JSOM accepts those forms as *extensions* (RFC 8259 §9 allows a
+    /// parser to accept non-JSON forms), which is what the conformance suite's 25
+    /// `n_number_*` disagreements are. Speed is the reason the default is off — see the
+    /// measurement in OPTIMIZATIONS.md.
+    ///
+    /// Turn it on when the document came from somewhere you do not control, or when the
+    /// JSON is going to be compared, keyed or re-serialized by a third party — a
+    /// malformed number that survives the scan is a number whose *text* JSOM faithfully
+    /// preserves, which is not the same as a number that is valid JSON.
+    ///
+    /// Validation does NOT imply eager conversion: LazyNumber still stores the original
+    /// text, so round trips stay byte-identical and number access stays lazy.
+    bool validate_numbers = false;
 };
 
 /**
@@ -48,6 +66,10 @@ public:
 
     /// Comment-tolerant parsing - allows // and /* */ comments
     static const JsonParseOptions Comments;
+
+    /// Strict parsing - validates numbers against the RFC 8259 grammar while scanning.
+    /// Everything else matches the default preset.
+    static const JsonParseOptions Strict;
 };
 
 /**
@@ -56,19 +78,29 @@ public:
 inline const JsonParseOptions ParsePresets::Default = {
     false, // convert_unicode_escapes
     false, // allow_comments
-    limits::MAX_NESTING_DEPTH // max_depth
+    limits::MAX_NESTING_DEPTH, // max_depth
+    false  // validate_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
     true, // convert_unicode_escapes
     false, // allow_comments
-    limits::MAX_NESTING_DEPTH // max_depth
+    limits::MAX_NESTING_DEPTH, // max_depth
+    false  // validate_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Comments = {
     false, // convert_unicode_escapes
     true,  // allow_comments
-    limits::MAX_NESTING_DEPTH // max_depth
+    limits::MAX_NESTING_DEPTH, // max_depth
+    false  // validate_numbers
+};
+
+inline const JsonParseOptions ParsePresets::Strict = {
+    false, // convert_unicode_escapes
+    false, // allow_comments
+    limits::MAX_NESTING_DEPTH, // max_depth
+    true   // validate_numbers
 };
 
 } // namespace jsom

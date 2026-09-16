@@ -148,6 +148,9 @@ add_executable(jsom_tests
 
     # Nesting-depth limit tests (RFC 8259 §9 resource limits)
     tests/test_nesting_limits.cpp        # no input may exhaust the stack
+
+    # Opt-in number validation tests
+    tests/test_number_validation.cpp     # strict number grammar switch (default off)
 )
 
 target_link_libraries(jsom_tests

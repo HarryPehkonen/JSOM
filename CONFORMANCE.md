@@ -64,17 +64,46 @@ limit (256) is reachable from a **256-byte** fuzz input, so ordinary fuzzing exe
 the guard. `fuzz/seeds/deep_nesting.json` (400 levels, 800 bytes) is checked in for
 exactly that.
 
-## Finding 2 — malformed numbers and escapes are accepted (44 files)
+## Finding 2 — malformed numbers and escapes are accepted (42 files; numbers now opt-in fixable)
 
 - **25 malformed numbers**: `-01`, `1.0.`, `-2.`, `0.1.2`, `1eE2`, `0e+`, `2.e+3`,
-  `9.e+`, `01`, and `[-]`. Numbers are validated *lazily* (`LazyNumber` preserves
-  the original text), so the number grammar is not enforced during the scan.
+  `9.e+`, `01`, and `[-]`. Numbers are validated *lazily* (`LazyNumber` preserves the
+  original text), so the number grammar is not enforced during the scan.
 - **15 malformed strings/escapes**: `\u` with too few hex digits, `\x`, `\0`,
-  lone-surrogate combinations, `\U`.
-- **3 structures**, including whitespace-formfeed.
+  lone-surrogate combinations, `\U`, unescaped control characters, invalid UTF-8.
+- **1 structure**: whitespace-formfeed.
+- Plus `n_array_just_minus` — `[-]`, which is a number-grammar problem too.
 
-Whether to validate during the scan or behind a `JsonParseOptions` flag is a
-policy call, and it is deliberately left open here.
+### Numbers: a switch, off by default (2026-09-16)
+
+`JsonParseOptions::validate_numbers` (and the `ParsePresets::Strict` preset) enforces
+the RFC 8259 §6 number grammar during the scan:
+
+```bash
+./build/jsom_conformance                # numbers: lazy (default)   -> n_ 146/188
+./build/jsom_conformance --strict-numbers  # numbers: VALIDATED    -> n_ 172/188
+```
+
+26 of the 42 disagreements fall to that one flag, with `y_` still **95/95** (it rejects
+nothing valid). It defaults to **off**, which is a policy decision rather than an
+oversight: RFC 8259 §9 permits a parser to accept non-JSON forms, so accepting `-01` is
+defensible *as a documented extension* — the point of the switch is that it is now a
+decision instead of an accident. The reason for the default is cost, measured (see
+OPTIMIZATIONS.md): +6% parsing a document of short numbers, +12% with 17-digit numbers,
++0.5% on a realistic mixed payload.
+
+Validation does not force conversion: `LazyNumber` still stores the original text, so
+round trips stay byte-exact (pinned by `NumberValidationTest.StrictModeKeepsTheOriginalText`).
+
+The remaining 16 disagreements are the **escape/UTF-8 group** (15) and the formfeed
+whitespace case, which are a separate decision: escapes are entangled with the
+documented round-trip-fidelity mode (`convert_unicode_escapes = false` preserves
+`\uXXXX` literally, which is exactly why a malformed escape survives the scan).
+
+**Reference point for the policy**: on the same corpus, nlohmann/json 3.11.3 scores
+`y_` 95/95, `n_` **187/188** (one disagreement), `i_` 7 accepted / 28 rejected. Strict
+number validation closes JSOM's number gap; the escape gap and the `i_` difference are
+where the two libraries still differ.
 
 ## Finding 3 — the round-trip oracle fires (found by the fuzzer, not the suite)
 
@@ -115,8 +144,17 @@ of gap as Finding 2: an oracle that never sees a shape cannot report it.
 
 ## Next steps
 
-1. Decide the number/escape policy (Finding 2); that also silences Finding 3.
-2. Add a nesting-depth limit, or make the parser iterative (Finding 1).
-3. Then consider making `run_conformance` part of the gate set. Today it is an
-   explicit target on purpose, so the verdict is visible without red-lighting
-   the default build.
+1. **Escapes are the remaining policy call** (Finding 2's other half, 15 files, and the
+   root cause of Finding 3's round-trip mismatch). Numbers are done as a switch
+   (`validate_numbers`, default off) and something equivalent is needed here — the
+   wrinkle is that fidelity mode deliberately preserves `\uXXXX` as text, so the
+   decision is what a *malformed* escape means in a mode whose promise is "no character
+   loss". That decision also un-reds the `fuzz_quick` gate.
+2. ~~Add a nesting-depth limit, or make the parser iterative~~ — done 2026-09-16: the
+   limit is `limits::MAX_NESTING_DEPTH` (256, per-parse via `max_depth`), enforced on
+   every traversal; crashes 2 → 0. An iterative rewrite would still need the limit for
+   the traversals, so it stayed a constant.
+3. Consider making `run_conformance` part of the gate set. Today it is an explicit
+   target on purpose, so the verdict is visible without red-lighting the default build.
+   It now also takes `--strict-numbers` so the strict verdict can be checked in CI once
+   the escape policy is settled.

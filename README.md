@@ -677,6 +677,30 @@ CLI support:
 ./build/jsom validate --comments config.jsonc
 ```
 
+## Number validation (opt-in)
+
+Numbers are stored lazily — JSOM keeps the original text so round trips are byte-exact
+and nothing is converted until you ask for a value. That also means the number grammar
+is not enforced during the scan, so `-01`, `1.0.`, `2.e+3`, `0e+` and `[-]` parse.
+RFC 8259 §9 allows a parser to accept non-JSON forms, so the lenient default is a
+policy, not an accident; when the input is not yours, enforce the other one:
+
+```cpp
+JsonParseOptions options;
+options.validate_numbers = true;                  // rejects "Invalid number: 01"
+auto doc = parse_document(json, options);
+
+auto strict = parse_document(json, ParsePresets::Strict);  // the same thing, as a preset
+```
+
+Cost, measured on a Release build (see "Number validation" in `OPTIMIZATIONS.md`):
+**+6%** parsing 2,000 short numbers, **+12%** for 17-digit numbers with exponents,
+**+0.5%** on a realistic mixed payload. The default path pays ~1–2% on number-heavy
+input for the branch.
+
+Validation does **not** force conversion: `1.500` and `1e10` still serialize back
+byte-for-byte, and access stays lazy.
+
 ## Resource Limits (RFC 8259 §9)
 
 RFC 8259 §9 says an implementation *may* set limits on the size of texts it accepts

@@ -261,6 +261,32 @@ by `NestingLimitTest.EmptyContainersDoNotConsumeTheNestingBudget`.
 
 ---
 
+## Number validation (2026-09-16) — what strictness costs
+
+`JsonParseOptions::validate_numbers` (default **off**, `ParsePresets::Strict` turns it on)
+checks the RFC 8259 §6 number grammar over the text the scan already collected. Measured
+on a Release build, 5 rounds per case reporting the best, two builds compiled from the
+same probe and run in the same session:
+
+| input | default (lazy) | validation on | delta |
+|---|---|---|---|
+| 2,000 short numbers (`123.45e3`) | 0.240 ms | 0.255 ms | **+6%** |
+| 1,000 × 17-digit numbers with exponents | 0.115 ms | 0.129 ms | **+12%** |
+| 1,000 realistic mixed records | 1.37 ms | 1.38 ms | **+0.5%** |
+
+Two things worth reading off that: the cost is proportional to *number text length*
+(~1 ns per digit — it is a second pass over the collected bytes), and it disappears in
+realistic payloads because numbers are a small fraction of the work. Turning validation
+on for a document that is 100% digits costs about a tenth of what the parse itself costs
+per number.
+
+The cost of the *switch itself* on the default path is a predictable branch per number:
+0.2374 → 0.2403 ms on the short-number case (+1.2%), within noise on the other two.
+Number-heavy benchmarks are the worst case for reading that off — for a mixed payload
+the branch is invisible.
+
+---
+
 ## Status summary / what remains
 
 **Done:** #1 (76× deep nesting), #1b (−9.5/−11.5/−16.1% arrays), #2 (Release

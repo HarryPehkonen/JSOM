@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace jsom {
@@ -258,6 +259,73 @@ private:
     }
     // NOLINTEND(readability-function-size)
 
+    [[nodiscard]] static constexpr auto is_digit(char c) -> bool { return c >= '0' && c <= '9'; }
+    [[nodiscard]] static constexpr auto is_digit_1_to_9(char c) -> bool { return c >= '1' && c <= '9'; }
+
+    /// RFC 8259 §6 number grammar, applied to the text the scan already collected.
+    /// Only used when JsonParseOptions::validate_numbers is set, because numbers are
+    /// otherwise stored lazily and never inspected (which is why `-01`, `1.0.` and
+    /// `2.e+3` were all accepted — see CONFORMANCE.md Finding 2).
+    ///
+    ///     number = [ minus ] int [ frac ] [ exp ]
+    ///     int    = zero / ( digit1-9 *DIGIT )
+    ///     frac   = "." 1*DIGIT
+    ///     exp    = ("e" / "E") ["+" / "-"] 1*DIGIT
+    [[nodiscard]] static auto is_valid_number(std::string_view text) -> bool {
+        size_t i = 0;
+        const size_t size = text.size();
+
+        if (i < size && text[i] == '-') {
+            ++i;
+        }
+
+        // int: leading zeros are what `-01`, `012` get wrong; `-` alone dies here.
+        if (i >= size) {
+            return false;
+        }
+        if (text[i] == '0') {
+            ++i;
+            if (i < size && is_digit(text[i])) {
+                return false;
+            }
+        } else if (is_digit_1_to_9(text[i])) {
+            while (i < size && is_digit(text[i])) {
+                ++i;
+            }
+        } else {
+            return false; // covers ".123", "-.123", "+1", "e5"
+        }
+
+        // frac: the dot must be followed by at least one digit ("1." and "2.e3").
+        if (i < size && text[i] == '.') {
+            ++i;
+            const size_t frac_start = i;
+            while (i < size && is_digit(text[i])) {
+                ++i;
+            }
+            if (i == frac_start) {
+                return false;
+            }
+        }
+
+        // exp: same requirement after the sign ("0e", "0e+", "1.0e-", "1eE2").
+        if (i < size && (text[i] == 'e' || text[i] == 'E')) {
+            ++i;
+            if (i < size && (text[i] == '+' || text[i] == '-')) {
+                ++i;
+            }
+            const size_t exp_start = i;
+            while (i < size && is_digit(text[i])) {
+                ++i;
+            }
+            if (i == exp_start) {
+                return false;
+            }
+        }
+
+        return i == size; // anything left over ("0.1.2", "1+2", "0e+-1") is a rejection
+    }
+
     // Fast number parsing with bulk scanning
     auto parse_number() -> JsonDocument {
         number_buffer_.clear();
@@ -280,6 +348,14 @@ private:
 
         // Bulk copy the number
         number_buffer_.assign(start, data_ + pos_ - start);
+
+        // Opt-in grammar check (JsonParseOptions::validate_numbers). The text is still
+        // stored lazily either way, so this costs one pass over the collected digits and
+        // buys nothing to the caller who only re-serializes what it parsed.
+        if (options_.validate_numbers && !is_valid_number(number_buffer_)) {
+            throw std::runtime_error("Invalid number: " + number_buffer_);
+        }
+
         return JsonDocument::from_lazy_number(number_buffer_);
     }
 
