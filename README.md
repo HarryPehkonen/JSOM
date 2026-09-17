@@ -44,6 +44,19 @@ Benchmark results show 2.01x performance improvement over baseline with full fun
 
 ## Building
 
+### Version
+
+The version lives in exactly one place — the `project(JSOM VERSION ...)` line in
+`CMakeLists.txt`. CMake generates `<jsom/version.hpp>` from it at configure time, so the
+CLI (`jsom version`), your own code, and the release tag all read the same value:
+
+```cpp
+#include <jsom/version.hpp>
+std::cout << JSOM_VERSION;        // "2.0.0"; also JSOM_VERSION_MAJOR/MINOR/PATCH
+```
+
+To release: edit that one line, rebuild, tag `v<version>`.
+
 ### Requirements
 - **C++17 or newer** (C++20, C++23, etc. fully supported)
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
@@ -410,15 +423,19 @@ auto unicode_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})", ParsePres
 // Converts to UTF-8: "A "
 ```
 
-### One parser
+### Parsing
 
-There is one parser: `FastParser`, behind `parse_document()`. A second, event-based
-implementation (`StreamingParser`, with builders that reassembled a document from its
-events) was removed on 2026-09-16. It returned the same model as `parse_document()` while
-being slower, had no callers, no fuzz coverage — and answered "is this valid JSON?"
-differently from the parser above (it accepted raw control characters in strings).
-Keeping two parsers meant implementing and fuzzing every rule twice; it is in git history
-if a streaming/SAX use case ever shows up.
+`parse_document()` is the entry point. Behind it is one parser — `FastParser`, a
+direct-construction recursive-descent parser that applies the RFC 8259 lexical rules to
+every input (see "Lexical rules" below):
+
+```cpp
+auto doc  = parse_document(json);                          // default options
+auto doc2 = parse_document(json, ParsePresets::Unicode);   // a preset
+JsonParseOptions options;
+options.max_depth = 64;                                    // resource limits
+auto doc3 = parse_document(json, options);
+```
 
 ### Error Handling
 ```cpp
@@ -652,10 +669,9 @@ document valid JSON, so they are enforced however the parser is called:
    escaped) — `Unescaped control character in string`
 2. `\u` must be followed by exactly four hex digits — `Invalid hex digit in unicode escape`
 3. an escape outside `" \ / b f n r t u` is rejected — `Invalid escape sequence: \U`
-   (this also removes an old wart where `"\U0041"` was accepted with its backslash
-   silently dropped, altering the document)
+   (an escape's backslash is never dropped, so no accepted document is altered)
 4. whitespace is exactly space, tab, LF and CR (§2) — formfeed and vertical tab are not
-   whitespace, which also fixes a latent bug: `std::isspace()` is locale-dependent
+   whitespace (`std::isspace()` is locale-dependent, so the set is spelled out)
 
 Cost: +1.5% on string-heavy parsing, nothing measurable elsewhere (measured; see
 "Lexical rules" in `OPTIMIZATIONS.md`).
@@ -696,16 +712,16 @@ byte-for-byte, and access stays lazy.
 RFC 8259 §9 says an implementation *may* set limits on the size of texts it accepts
 and on the maximum depth of nesting. JSOM sets the depth limit deliberately.
 
-The reason is that recursion cannot fail gracefully. A deeply nested document used to
-exhaust the C++ stack and kill the process — SIGSEGV, not an exception, so nothing
-could catch it, and on a 1 MB worker-thread stack about 3 KB of `[` was enough.
-Measured 2026-09-16 (gcc, x86-64) before the guard existed:
+The reason is that recursion cannot fail gracefully: an unbounded recursive-descent
+parser exhausts the C++ stack and dies with SIGSEGV — not an exception, so nothing can
+catch it, and on a 1 MB worker-thread stack about 3 KB of `[` is enough. Measured
+2026-09-16 (gcc, x86-64), parsing without a depth bound:
 
 | input | 8 MB main-thread stack | 1 MB worker-thread stack |
 |---|---|---|
-| 20,000 nested arrays | parses | dies (~3,000 levels) |
-| 24,000 nested arrays | dies | dies |
-| 100,000 `[`, closers not needed | dies | dies |
+| 20,000 nested arrays | parses | SIGSEGV at ~3,000 levels |
+| 24,000 nested arrays | SIGSEGV | SIGSEGV |
+| 100,000 `[`, closers not needed | SIGSEGV | SIGSEGV |
 
 So the bound is taken on the way *in*, and every traversal honours it: parsing,
 serialization (compact and pretty), comparison and path listing all refuse a document
@@ -749,7 +765,7 @@ the stack cost that implies.
 No file the RFC 8259 conformance suite requires us to *accept* nests deeper than 3
 levels, so 256 is far more generous than real data. The deepest case the suite
 exercises at all — `i_structure_500_nested_arrays.json`, where the suite explicitly
-abstains — is now rejected by policy; raise `max_depth` if you want it.
+abstains — is rejected by policy; raise `max_depth` if you want it.
 
 ### What is not bounded
 

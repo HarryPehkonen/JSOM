@@ -1,7 +1,7 @@
 # RFC 8259 conformance — measured verdict
 
-**Measured 2026-09-14, refreshed 2026-09-16** against the vendored corpus in
-`third_party/json_test_suite` (nst/JSONTestSuite, MIT, (c) 2016 Nicolas Seriot). Run it:
+**Measured 2026-09-16** against the vendored corpus in `third_party/json_test_suite`
+(nst/JSONTestSuite, MIT, (c) 2016 Nicolas Seriot). Run it:
 
 ```bash
 cmake --build build --target run_conformance      # verdict; exits non-zero on disagreement
@@ -17,62 +17,60 @@ cmake --build build --target conformance_report   # + the i_ list (decisions, no
 | `i_` — suite abstains | 35 files | 30 accepted, 5 rejected | same |
 | crashes (never acceptable) | — | **0** | 0 |
 
-History: `y_` 95/95 and `n_` 144/188 on 2026-09-14 (with 2 crashes), 146/188 after the
-depth limit, 162/188 once the lexical rules became unconditional, 188/188 with the
-number grammar (measured 2026-09-16).
+`i_structure_500_nested_arrays.json` is rejected: 500 levels is past the nesting limit —
+a policy decision, not a conformance loss (README "Resource Limits"). The suite abstains
+on `i_` either way.
 
-`i_structure_500_nested_arrays.json` moved from "accepted" to "rejected" because 500
-levels is past the nesting limit — a policy decision, not a conformance loss (README
-"Resource Limits"). The suite abstains on `i_` either way.
+## Nesting depth — bounded, on the way in
 
-## Finding 1 — a valid 60 KB document crashed the parser (FIXED 2026-09-16)
+Recursion cannot fail gracefully. An unbounded recursive-descent parser exhausts the C++
+stack and dies with SIGSEGV — not an exception, so nothing can catch it. Measured
+2026-09-16 (gcc, x86-64) without a depth bound:
 
-30,000 nested `[` closed by 30,000 `]` is **valid JSON** and segfaults:
+| input | 8 MB main-thread stack | 1 MB worker-thread stack |
+|---|---|---|
+| 20,000 nested arrays | parses | SIGSEGV at ~3,000 levels |
+| 24,000 nested arrays | SIGSEGV | SIGSEGV |
+| 100,000 `[`, closers not needed | SIGSEGV | SIGSEGV |
+
+30,000 nested `[` closed by 30,000 `]` is **valid JSON**, and ~60 KB is enough to kill a
+process — a remote DoS for anything parsing JSON from off-machine. Arrays, objects and
+mixed nesting behave alike. RFC 8259 sets no depth limit, so the suite files the
+pathological cases under `i_`: rejecting them with a proper error is conformant, and so
+is parsing them iteratively. Dying is not.
+
+**The bound**: one integer comparison per container, checked on the way *in*.
+`JsonParseOptions::max_depth` (default `limits::MAX_NESTING_DEPTH` = 256) governs parsing,
+and the same limit governs every traversal — serialization, comparison, path listing and
+formatting — so a document JSOM accepts is a document JSOM can print, compare and walk.
+Deeper input, including `[`*100000 with no closers, is rejected:
 
 ```bash
 python3 -c "print(chr(91)*30000 + chr(93)*30000, end='')" > /tmp/deep.json
-./jsom format /tmp/deep.json        # Segmentation fault
+./jsom format /tmp/deep.json        # Error: Maximum nesting depth exceeded (limit 256)
 ```
 
-ASan names the recursion: `FastParser::parse_array()` <-> `FastParser::parse_value()`,
-123 frames deep and climbing until the stack is gone. There is **no nesting-depth
-limit**, so this is a remote DoS for anything parsing untrusted JSON: ~60 KB in,
-process dead. Measured: 20,000 levels accepted, 28,000 rejected (EOF), **30,000
-segfault** — arrays, objects and mixed nesting alike.
+```text
+std::runtime_error: Maximum nesting depth exceeded (limit 256)
+```
 
-### Resolution
+The limit comes from measured stack cost per level (~0.3–0.6 KB, worst case an
+unoptimised debug build), so the deepest legal document fits a 1 MB thread stack with
+room to spare; `tests/test_nesting_limits.cpp` runs the full set of traversals at exactly
+the limit on a real 1 MB thread.
 
-A depth bound now exists — one integer comparison per container, checked on the way
-*in*, because a stack overflow cannot be caught: `JsonParseOptions::max_depth`
-(default `limits::MAX_NESTING_DEPTH` = 256) for parsing, and the same bound for every
-traversal (serialize, compare, path listing, formatting). Deeper input, including
-`[`*100000 with no closers, is rejected with
-`std::runtime_error: Maximum nesting depth exceeded (limit 256)`. The limit was chosen
-from measured stack cost per level (~0.3–0.6 KB, worst case a debug build) so the
-deepest legal document fits a 1 MB thread stack; `tests/test_nesting_limits.cpp` proves
-that on a real 1 MB thread, and pins the historical crash shapes as rejections.
+What matters is the caller's stack, not a bracket count: the same document parses at
+20,000 levels on an 8 MB main thread and dies at ~3,000 levels on a 1 MB worker thread,
+and the threshold moves with compiler and optimisation level. That is why the limit is
+explicit and configurable instead of left to luck.
 
-The boundary that matters is not a number of brackets but the caller's stack: the same
-document parses at 20,000 levels on an 8 MB main thread and dies at ~3,000 levels on a
-1 MB worker thread, and the threshold moves with the compiler and optimisation level.
-That is exactly why the limit is explicit and configurable rather than left to luck.
+Fuzzing reaches it cheaply: fuzz inputs are capped at 4 KB, and the limit (256) is
+reachable from a **256-byte** input, so ordinary fuzzing exercises the guard.
+`fuzz/seeds/deep_nesting.json` (400 levels, 800 bytes) is checked in for exactly that.
 
-Why the fuzzer never found it: fuzz inputs are capped at 4 KB, and 4 KB of `[` is
-only ~4,000 levels — nowhere near the ~30,000 needed to reach the old cliff. The
-suite's hand-written pathological case reaches it immediately. RFC 8259 imposes no
-depth limit, which is why the suite files this under `n_`: rejecting it with a proper
-error is conformant, and so is parsing it iteratively. Dying is not.
+## Numbers and escapes — what is rejected, and when
 
-The arithmetic works the other way round now, which is a quiet bonus of a bound: the
-limit (256) is reachable from a **256-byte** fuzz input, so ordinary fuzzing exercises
-the guard. `fuzz/seeds/deep_nesting.json` (400 levels, 800 bytes) is checked in for
-exactly that.
-
-## Finding 2 — malformed numbers and escapes were accepted (FIXED 2026-09-16)
-
-The 42 disagreements were 26 numbers (`-01`, `1.0.`, `2.e+3`, `0e+`, `[-]`), 15
-malformed escapes/strings/codepoints and 1 whitespace case. Both halves are fixed, with
-different defaults on purpose:
+The 42 suite disagreements fall into two groups, with different defaults on purpose.
 
 **Escapes, control characters, whitespace — enforced ALWAYS, not a setting.** §7 requires
 control characters to be escaped inside strings and defines the escape set exactly; §2
@@ -81,12 +79,11 @@ defines whitespace as space/tab/LF/CR. Four rules, enforced regardless of option
 1. a raw control character (U+0000..U+001F) inside a string → `Unescaped control character in string`
 2. `\u` without exactly four hex digits → `Invalid hex digit in unicode escape`
 3. any escape outside `" \ / b f n r t u` → `Invalid escape sequence: \U`
-4. formfeed/vertical tab as whitespace → rejected (also fixes a locale bug: `std::isspace()` is locale-dependent)
+4. formfeed/vertical tab as whitespace → rejected (`std::isspace()` is locale-dependent, so the set is spelled out)
 
-Rule 3 also removes the old *backslash-dropping*: that path used to append the character
-and lose its backslash, silently altering the document. It now rejects, so no accepted
-document is ever altered — there is nothing left to preserve, and
-`LexicalConformanceTest.NothingIsDroppedFromAnAcceptedDocument` pins it.
+Rule 3 means an escape's backslash is never dropped: an unrecognised escape is a syntax
+error, not a character that loses its prefix, so no accepted document is altered.
+`LexicalConformanceTest.NothingIsDroppedFromAnAcceptedDocument` pins that.
 
 **Numbers — opt-in, because of measured cost.** `JsonParseOptions::validate_numbers`
 (or `ParsePresets::Validate`, or `--validation=numbers`), default **off**: RFC 8259 §9
@@ -98,7 +95,7 @@ a realistic payload (OPTIMIZATIONS.md). Validation does not force conversion —
 Cost of the always-on lexical rules: **+1.5% on string-heavy parsing**, everything else
 within noise (OPTIMIZATIONS.md, "Lexical rules").
 
-### Numbers: the opt-in switch (2026-09-16)
+### The switch
 
 ```bash
 ./build/jsom_conformance                          # numbers lazy (default) -> n_ 162/188
@@ -106,88 +103,47 @@ within noise (OPTIMIZATIONS.md, "Lexical rules").
 ./jsom validate --validation=numbers file.json    # the same switch on the CLI
 ```
 
-`ParsePresets::Validate` is the API spelling. The measured cost is above; the reason the
-default is off is speed, and RFC 8259 §9's permission to accept non-JSON forms is what
-makes that defensible as a documented extension.
+`ParsePresets::Validate` is the API spelling. The default is off because of speed, and
+RFC 8259 §9's permission to accept non-JSON forms is what makes that a documented
+extension rather than an oversight.
 
 **Reference point for the policy**: on the same corpus, nlohmann/json 3.11.3 scores
 `y_` 95/95, `n_` **187/188** (one disagreement, a NUL after digits), `i_` 7 accepted /
 28 rejected. With the number grammar on, JSOM and nlohmann differ only on that one file
 and on the `i_` list (where the suite has no opinion).
 
-## Finding 3 — the round-trip oracle fired (FIXED 2026-09-16)
+## Round-trip fidelity — what holds
 
-`tests/fuzzer.cpp` asserts `parse(to_json(doc)) == doc`. It aborted within 60 seconds on
-a 150-byte input, preserved at `fuzz/regressions/round-trip-malformed-escape.json`.
+`tests/fuzzer.cpp` asserts `parse(to_json(doc)) == doc` for everything either
+configuration accepts — the default and `--validation=numbers` (measured 2026-09-16:
+`fuzz_quick` green, 325,624 runs, no artifacts). What the default mode does with the
+shapes that stress the round trip:
 
-**The real cause turned out to be narrower than "malformed escapes", and it is worth
-recording precisely**: the input contained *raw NUL bytes* inside a string. Fidelity mode
-stores a raw control byte as itself, the serializer writes it back as the six-character
-text `\u0000`, and the fidelity parser reads that text as *text* rather than as the
-character — so the document changed identity. Measured minimal cases:
+| document containing | parse | round trip |
+|---|---|---|
+| a raw NUL, tab or newline inside a string | rejected (rule 1) | not applicable |
+| escaped `\u0000` | accepted | stable |
+| a valid `\uXXXX` | accepted | stable |
+| an escape outside the set (`\U0041`) | rejected (rule 3) | not applicable |
 
-| default mode, document containing | round trip |
-|---|---|
-| a raw NUL inside a string | **mismatch** |
-| a raw tab or raw newline | stable |
-| escaped `\u0000` | stable |
-| a valid `\uXXXX` | stable |
-| a malformed escape (`\U0041`) | stable (was: backslash dropped — now rejected) |
+So the oracle holds for every accepted input: the shapes that make a document change
+identity are syntax errors, and the serializer and the parser agree on the form of
+everything else.
 
-Rule 1 makes the raw-control-character case a rejection, so the mismatch is no longer
-reachable through the parser; the oracle now holds for every accepted input, and the
-`fuzz_quick` gate is green (252,327 runs, no artifacts, 2026-09-16). The fuzz target
-drives **both** configurations on every input — the default (which ships) and
-`--validation=numbers` — so the strict rejection paths are fuzzed too.
-
-Documented limitation that remains, and why it is not worth fixing: in fidelity mode,
-serializing a raw control character produces `\uXXXX` text that fidelity parsing reads
-back as text. Only reachable for input that is invalid JSON (now rejected); making it
-re-readable would mean emitting raw bytes (invalid JSON) or decoding `\uXXXX` (the
-`convert_unicode_escapes` mode, where it already round-trips).
-
-## Finding 4 — the streaming path could not parse empty containers (removed 2026-09-16)
-
-The event-based streaming path (`StreamingParser` + `DocumentBuilder` +
-`parse_document_streaming()`) threw on every empty container:
-
-```text
-[]            -> Parse error at position 2 (path: /0): Unexpected character
-[[]]          -> Parse error at position 3 (path: /0/0): Unexpected character
-{"a":{}}      -> Parse error at position 7 (path: /a): Unexpected character
-[1] / [[1]]   -> fine
-```
-
-The cause was one missing state in `StreamingParser`: after `[` it returned to
-"expecting a value", so an immediately following `]` was "Unexpected character".
-
-**Resolution: the whole path was deleted rather than fixed** (2026-09-16). Reviewing it
-turned up three things that made repair the wrong call:
-
-- **No consumers.** The only callers were the README example and a test. No CLI, no
-  benchmark, no fuzzer, no product code.
-- **Nothing gained.** `parse_document_streaming()` returned the same model as
-  `parse_document()`, slower; its "bounded memory" claim was false once a DOM was
-  assembled, and its no-recursion advantage died with the depth limit (which it also
-  enforced).
-- **It disagreed with the parser.** Spot-checking must-reject suite files showed it
-  *accepting* raw control characters and raw tabs in strings that `FastParser` now
-  rejects — i.e. two implementations, two definitions of "valid JSON". It had zero fuzz
-  coverage, which is why these survived, and it still carried the `std::isspace`
-  locale bug.
-
-So JSOM now has one parser and one set of rules. The code is in git history
-(`37aa01d` and earlier) if a streaming/SAX use case ever appears — it should come back
-with a fuzz target from day one, which this path never had.
+One documented limitation, kept because it is a genuine asymmetry rather than a bug: in
+fidelity mode (`convert_unicode_escapes = false`) the serializer writes a raw control
+character as the six-character text `\uXXXX`, and fidelity parsing reads that text back
+as *text* rather than as the character. It is unreachable through the parser — rule 1
+rejects raw control characters — so it cannot affect the round trip of an accepted
+document. Making it re-readable would mean either emitting raw bytes (invalid JSON) or
+decoding `\uXXXX` (the `convert_unicode_escapes` mode, where the character round-trips
+as expected).
 
 ## Next steps
 
-1. **The judged classes are clean**: `y_` 95/95 and `n_` 188/188 with
-   `--validation=numbers`. The lexical rules are unconditional, so the default mode
-   already reaches 162/188 — nothing here is waiting on a decision.
-2. **One parser** (2026-09-16): the event-based streaming path was deleted rather than
-   repaired — unused, unfuzzed, and it disagreed with `FastParser` on what is valid JSON
-   (Finding 4).
-3. Consider making `run_conformance` part of the gate set. It accepts
-   `--validation=numbers` so CI can assert the strict verdict, and the lexical rules make
-   the default verdict meaningful too (162/188 rather than 146/188).
+1. Consider making `run_conformance` part of the gate set. It accepts
+   `--validation=numbers` so CI can assert the full-strictness verdict, and the lexical
+   rules make the default verdict meaningful too (162/188).
+2. Everything else in the suite's judged classes is clean; the remaining `i_` files are
+   where the suite has no opinion and JSOM takes its documented positions (see the
+   `i_` list from `conformance_report`).

@@ -13,7 +13,21 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-project(JSOM VERSION 1.0.0 LANGUAGES CXX)
+project(JSOM VERSION 2.0.0 LANGUAGES CXX)
+
+# ================================
+# Version — single source of truth
+# ================================
+# PROJECT_VERSION, set by project() above, is the ONLY place the version is written.
+# `cmake/version.hpp.in` is configured here, so everything that needs the version —
+# the CLI, tests, any consumer including <jsom/version.hpp> — reads the same value.
+# To release: edit the project() line, then tag.
+set(JSOM_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.hpp.in
+    ${JSOM_GENERATED_INCLUDE_DIR}/jsom/version.hpp
+    @ONLY
+)
 
 # Install prefix: default to the user's ~/.local so `install` needs no root.
 # Value-based check (not CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT) so it
@@ -57,6 +71,7 @@ add_library(jsom_lib
 )
 target_include_directories(jsom_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${JSOM_GENERATED_INCLUDE_DIR}>
 )
 target_compile_features(jsom_lib PRIVATE cxx_std_17)
 
