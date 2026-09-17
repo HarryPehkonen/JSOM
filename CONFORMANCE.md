@@ -10,16 +10,20 @@ cmake --build build --target conformance_report   # + the i_ list (decisions, no
 
 ## Where things stand
 
-| class | meaning | result (2026-09-16) | result (2026-09-14) |
+| class | meaning | default (lazy numbers) | `--validation=numbers` |
 |---|---|---|---|
 | `y_` — must accept | 95 files | **95/95 OK** | 95/95 OK |
-| `n_` — must reject | 188 files | **146/188 — 42 disagreements** | 144/188 |
-| `i_` — suite abstains | 35 files | 30 accepted, 5 rejected | 31 / 4 |
-| crashes (never acceptable) | — | **0** | 2 |
+| `n_` — must reject | 188 files | **162/188** | **188/188** |
+| `i_` — suite abstains | 35 files | 30 accepted, 5 rejected | same |
+| crashes (never acceptable) | — | **0** | 0 |
 
-The two crash files are now clean rejections, and `i_structure_500_nested_arrays.json`
-moved from "accepted" to "rejected" because 500 levels is past the new nesting limit —
-a policy decision, not a conformance loss (see the README's "Resource Limits").
+History: `y_` 95/95 and `n_` 144/188 on 2026-09-14 (with 2 crashes), 146/188 after the
+depth limit, 162/188 once the lexical rules became unconditional, 188/188 with the
+number grammar (measured 2026-09-16).
+
+`i_structure_500_nested_arrays.json` moved from "accepted" to "rejected" because 500
+levels is past the nesting limit — a policy decision, not a conformance loss (README
+"Resource Limits"). The suite abstains on `i_` either way.
 
 ## Finding 1 — a valid 60 KB document crashed the parser (FIXED 2026-09-16)
 
@@ -64,63 +68,83 @@ limit (256) is reachable from a **256-byte** fuzz input, so ordinary fuzzing exe
 the guard. `fuzz/seeds/deep_nesting.json` (400 levels, 800 bytes) is checked in for
 exactly that.
 
-## Finding 2 — malformed numbers and escapes are accepted (42 files; numbers now opt-in fixable)
+## Finding 2 — malformed numbers and escapes were accepted (FIXED 2026-09-16)
 
-- **25 malformed numbers**: `-01`, `1.0.`, `-2.`, `0.1.2`, `1eE2`, `0e+`, `2.e+3`,
-  `9.e+`, `01`, and `[-]`. Numbers are validated *lazily* (`LazyNumber` preserves the
-  original text), so the number grammar is not enforced during the scan.
-- **15 malformed strings/escapes**: `\u` with too few hex digits, `\x`, `\0`,
-  lone-surrogate combinations, `\U`, unescaped control characters, invalid UTF-8.
-- **1 structure**: whitespace-formfeed.
-- Plus `n_array_just_minus` — `[-]`, which is a number-grammar problem too.
+The 42 disagreements were 26 numbers (`-01`, `1.0.`, `2.e+3`, `0e+`, `[-]`), 15
+malformed escapes/strings/codepoints and 1 whitespace case. Both halves are fixed, with
+different defaults on purpose:
 
-### Numbers: a switch, off by default (2026-09-16)
+**Escapes, control characters, whitespace — enforced ALWAYS, not a setting.** §7 requires
+control characters to be escaped inside strings and defines the escape set exactly; §2
+defines whitespace as space/tab/LF/CR. Four rules, enforced regardless of options:
 
-`JsonParseOptions::validate_numbers` (and the `ParsePresets::Strict` preset) enforces
-the RFC 8259 §6 number grammar during the scan:
+1. a raw control character (U+0000..U+001F) inside a string → `Unescaped control character in string`
+2. `\u` without exactly four hex digits → `Invalid hex digit in unicode escape`
+3. any escape outside `" \ / b f n r t u` → `Invalid escape sequence: \U`
+4. formfeed/vertical tab as whitespace → rejected (also fixes a locale bug: `std::isspace()` is locale-dependent)
+
+Rule 3 also removes the old *backslash-dropping*: that path used to append the character
+and lose its backslash, silently altering the document. It now rejects, so no accepted
+document is ever altered — there is nothing left to preserve, and
+`LexicalConformanceTest.NothingIsDroppedFromAnAcceptedDocument` pins it.
+
+**Numbers — opt-in, because of measured cost.** `JsonParseOptions::validate_numbers`
+(or `ParsePresets::Validate`, or `--validation=numbers`), default **off**: RFC 8259 §9
+permits accepting non-JSON forms, so the lazy default is a documented extension rather
+than an accident. Cost: +6% parsing short numbers, +12% for 17-digit numbers, +0.5% on
+a realistic payload (OPTIMIZATIONS.md). Validation does not force conversion —
+`LazyNumber` still keeps the original text, so `1.500` round-trips byte-exact.
+
+Cost of the always-on lexical rules: **+1.5% on string-heavy parsing**, everything else
+within noise (OPTIMIZATIONS.md, "Lexical rules").
+
+### Numbers: the opt-in switch (2026-09-16)
 
 ```bash
-./build/jsom_conformance                # numbers: lazy (default)   -> n_ 146/188
-./build/jsom_conformance --strict-numbers  # numbers: VALIDATED    -> n_ 172/188
+./build/jsom_conformance                          # numbers lazy (default) -> n_ 162/188
+./build/jsom_conformance --validation=numbers     # number grammar on      -> n_ 188/188
+./jsom validate --validation=numbers file.json    # the same switch on the CLI
 ```
 
-26 of the 42 disagreements fall to that one flag, with `y_` still **95/95** (it rejects
-nothing valid). It defaults to **off**, which is a policy decision rather than an
-oversight: RFC 8259 §9 permits a parser to accept non-JSON forms, so accepting `-01` is
-defensible *as a documented extension* — the point of the switch is that it is now a
-decision instead of an accident. The reason for the default is cost, measured (see
-OPTIMIZATIONS.md): +6% parsing a document of short numbers, +12% with 17-digit numbers,
-+0.5% on a realistic mixed payload.
-
-Validation does not force conversion: `LazyNumber` still stores the original text, so
-round trips stay byte-exact (pinned by `NumberValidationTest.StrictModeKeepsTheOriginalText`).
-
-The remaining 16 disagreements are the **escape/UTF-8 group** (15) and the formfeed
-whitespace case, which are a separate decision: escapes are entangled with the
-documented round-trip-fidelity mode (`convert_unicode_escapes = false` preserves
-`\uXXXX` literally, which is exactly why a malformed escape survives the scan).
+`ParsePresets::Validate` is the API spelling. The measured cost is above; the reason the
+default is off is speed, and RFC 8259 §9's permission to accept non-JSON forms is what
+makes that defensible as a documented extension.
 
 **Reference point for the policy**: on the same corpus, nlohmann/json 3.11.3 scores
-`y_` 95/95, `n_` **187/188** (one disagreement), `i_` 7 accepted / 28 rejected. Strict
-number validation closes JSOM's number gap; the escape gap and the `i_` difference are
-where the two libraries still differ.
+`y_` 95/95, `n_` **187/188** (one disagreement, a NUL after digits), `i_` 7 accepted /
+28 rejected. With the number grammar on, JSOM and nlohmann differ only on that one file
+and on the `i_` list (where the suite has no opinion).
 
-## Finding 3 — the round-trip oracle fires (found by the fuzzer, not the suite)
+## Finding 3 — the round-trip oracle fired (FIXED 2026-09-16)
 
-`tests/fuzzer.cpp` now asserts `parse(to_json(doc)) == doc`. It aborted within
-60 seconds on a 150-byte input, preserved at
-`fuzz/regressions/round-trip-malformed-escape.json`:
+`tests/fuzzer.cpp` asserts `parse(to_json(doc)) == doc`. It aborted within 60 seconds on
+a 150-byte input, preserved at `fuzz/regressions/round-trip-malformed-escape.json`.
 
-```
-in:  ...unicode: \u00e\0\0 9\u4e2d\u6587...
-out: ...unicode: \\u00e\u0000\u00009\\u4e2d\\u6587...   (backslashes escaped on output)
-```
+**The real cause turned out to be narrower than "malformed escapes", and it is worth
+recording precisely**: the input contained *raw NUL bytes* inside a string. Fidelity mode
+stores a raw control byte as itself, the serializer writes it back as the six-character
+text `\u0000`, and the fidelity parser reads that text as *text* rather than as the
+character — so the document changed identity. Measured minimal cases:
 
-An input carrying a *malformed* escape is accepted, its backslash is escaped on
-output, so the document changes identity across a single round trip. That
-contradicts the stated intent of the default mode — "preserves \uXXXX as literal
-strings for **round-trip fidelity**" — independently of RFC 8259. Same root cause
-as the escape group in Finding 2.
+| default mode, document containing | round trip |
+|---|---|
+| a raw NUL inside a string | **mismatch** |
+| a raw tab or raw newline | stable |
+| escaped `\u0000` | stable |
+| a valid `\uXXXX` | stable |
+| a malformed escape (`\U0041`) | stable (was: backslash dropped — now rejected) |
+
+Rule 1 makes the raw-control-character case a rejection, so the mismatch is no longer
+reachable through the parser; the oracle now holds for every accepted input, and the
+`fuzz_quick` gate is green (252,327 runs, no artifacts, 2026-09-16). The fuzz target
+drives **both** configurations on every input — the default (which ships) and
+`--validation=numbers` — so the strict rejection paths are fuzzed too.
+
+Documented limitation that remains, and why it is not worth fixing: in fidelity mode,
+serializing a raw control character produces `\uXXXX` text that fidelity parsing reads
+back as text. Only reachable for input that is invalid JSON (now rejected); making it
+re-readable would mean emitting raw bytes (invalid JSON) or decoding `\uXXXX` (the
+`convert_unicode_escapes` mode, where it already round-trips).
 
 ## Finding 4 — the streaming path cannot parse empty containers (found 2026-09-16)
 
@@ -144,17 +168,12 @@ of gap as Finding 2: an oracle that never sees a shape cannot report it.
 
 ## Next steps
 
-1. **Escapes are the remaining policy call** (Finding 2's other half, 15 files, and the
-   root cause of Finding 3's round-trip mismatch). Numbers are done as a switch
-   (`validate_numbers`, default off) and something equivalent is needed here — the
-   wrinkle is that fidelity mode deliberately preserves `\uXXXX` as text, so the
-   decision is what a *malformed* escape means in a mode whose promise is "no character
-   loss". That decision also un-reds the `fuzz_quick` gate.
-2. ~~Add a nesting-depth limit, or make the parser iterative~~ — done 2026-09-16: the
-   limit is `limits::MAX_NESTING_DEPTH` (256, per-parse via `max_depth`), enforced on
-   every traversal; crashes 2 → 0. An iterative rewrite would still need the limit for
-   the traversals, so it stayed a constant.
-3. Consider making `run_conformance` part of the gate set. Today it is an explicit
-   target on purpose, so the verdict is visible without red-lighting the default build.
-   It now also takes `--strict-numbers` so the strict verdict can be checked in CI once
-   the escape policy is settled.
+1. **The judged classes are clean**: `y_` 95/95 and `n_` 188/188 with
+   `--validation=numbers`. The lexical rules are unconditional, so the default mode
+   already reaches 162/188 — nothing here is waiting on a decision.
+2. **The streaming path is the remaining known defect** (Finding 4): `parse_document_streaming()`
+   rejects `[]` and `{"a":{}}`. Pre-existing, on the legacy path, and the one subsystem
+   with no fuzz coverage of its own.
+3. Consider making `run_conformance` part of the gate set. It accepts
+   `--validation=numbers` so CI can assert the strict verdict, and the lexical rules make
+   the default verdict meaningful too (162/188 rather than 146/188).

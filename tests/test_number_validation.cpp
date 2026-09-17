@@ -113,11 +113,11 @@ TEST(NumberValidationTest, StrictModeKeepsTheOriginalText) {
 }
 
 TEST(NumberValidationTest, TheStrictPresetCarriesTheSwitch) {
-    EXPECT_TRUE(ParsePresets::Strict.validate_numbers);
-    EXPECT_EQ(ParsePresets::Strict.max_depth, limits::MAX_NESTING_DEPTH);
-    EXPECT_EQ(ParsePresets::Strict.convert_unicode_escapes, ParsePresets::Default.convert_unicode_escapes);
-    EXPECT_NO_THROW((void)parse_document("[1.5, 2e3]", ParsePresets::Strict));
-    EXPECT_THROW((void)parse_document("[1.5, 2eE3]", ParsePresets::Strict), std::runtime_error);
+    EXPECT_TRUE(ParsePresets::Validate.validate_numbers);
+    EXPECT_EQ(ParsePresets::Validate.max_depth, limits::MAX_NESTING_DEPTH);
+    EXPECT_EQ(ParsePresets::Validate.convert_unicode_escapes, ParsePresets::Default.convert_unicode_escapes);
+    EXPECT_NO_THROW((void)parse_document("[1.5, 2e3]", ParsePresets::Validate));
+    EXPECT_THROW((void)parse_document("[1.5, 2eE3]", ParsePresets::Validate), std::runtime_error);
 }
 
 TEST(NumberValidationTest, TheSwitchIsIndependentOfTheOtherOptions) {

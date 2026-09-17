@@ -48,9 +48,9 @@ std::string slurp(const fs::path& p) {
 
 enum class Outcome { accepted, rejected_invalid_argument, rejected_other, crashed };
 
-/// Set from --strict-numbers. A file-scope flag rather than a parameter because the
+/// Set from `--validation=numbers`. A file-scope flag rather than a parameter because the
 /// outcome is produced in a forked child and every call site wants the same setting.
-bool g_strict_numbers = false;
+bool g_validate_numbers = false;
 
 // Parse in a FORKED CHILD so an implementation that dies on a suite file cannot
 // take the runner with it: dying IS a result. Exit codes carry the outcome back;
@@ -58,7 +58,7 @@ bool g_strict_numbers = false;
 int parse_in_child(const std::string& text, bool unicode_escapes) {
     jsom::JsonParseOptions options;
     options.convert_unicode_escapes = unicode_escapes;
-    options.validate_numbers = g_strict_numbers;
+    options.validate_numbers = g_validate_numbers;
     try {
         auto doc = jsom::parse_document(text, options);
         (void)doc;
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
         if (a == "--list") { list = true; }
         else if (a == "--quiet") { quiet = true; }
         else if (a == "--verbose") { verbose = true; std::cout << std::unitbuf; }
-        else if (a == "--strict-numbers") { g_strict_numbers = true; }
+        else if (a == "--validation=numbers") { g_validate_numbers = true; }
         else { suite = a; }
     }
 
@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
 
     if (!quiet) {
         std::cout << "=== RFC 8259 conformance: " << suite.string() << " ===\n";
-        std::cout << "  numbers: " << (g_strict_numbers ? "VALIDATED (strict)" : "lazy (default)")
+        std::cout << "  numbers: " << (g_validate_numbers ? "numbers validated (--validation=numbers)" : "lazy (default)")
                   << "\n";
         std::cout << "  y_ must accept: " << y_ok << "/" << y_total
                   << (y_ok == y_total ? "  OK" : "  <-- FAILURES") << "\n";

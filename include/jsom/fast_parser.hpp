@@ -41,9 +41,45 @@ private:
     std::string string_buffer_;
     std::string number_buffer_;
 
+    /// RFC 8259 §2: `ws = *( %x20 / %x09 / %x0A / %x0D )`. std::isspace() is
+    /// locale-dependent and also accepts formfeed and vertical tab, which the spec does
+    /// not allow as whitespace — `[\f]` is an n_ file in the conformance suite.
+    [[nodiscard]] static constexpr auto is_json_whitespace(char c) -> bool {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    }
+
+    /// RFC 8259 §7 hex digits for `\uXXXX`. hex_to_int() returns -1 for a non-hex digit
+    /// (it does not throw), so the check is explicit here.
+    void expect_unicode_escape_digits() {
+        if (pos_ + parser_constants::UNICODE_ESCAPE_LENGTH > size_) {
+            throw std::runtime_error("Incomplete unicode escape");
+        }
+        for (int i = 0; i < parser_constants::UNICODE_ESCAPE_LENGTH; ++i) {
+            if (hex_to_int(data_[pos_ + static_cast<size_t>(i)]) < 0) {
+                throw std::runtime_error("Invalid hex digit in unicode escape");
+            }
+        }
+    }
+
+    /// §7 `escape = ...` — anything else is a syntax error. The old default branch
+    /// appended the character and DROPPED its backslash, silently altering the document;
+    /// rejecting is both conformant and lossless.
+    [[noreturn]] static void throw_invalid_escape(char escaped) {
+        static constexpr std::string_view HEX_DIGITS = "0123456789abcdef";
+        std::string shown;
+        if (static_cast<unsigned char>(escaped) >= character_constants::MIN_CONTROL_CHAR) {
+            shown = std::string("\\") + escaped;
+        } else {
+            shown = std::string("\\x");
+            shown += HEX_DIGITS[static_cast<unsigned char>(escaped) >> 4];
+            shown += HEX_DIGITS[static_cast<unsigned char>(escaped) & 0x0F];
+        }
+        throw std::runtime_error("Invalid escape sequence: " + shown);
+    }
+
     void skip_whitespace() {
         while (pos_ < size_) {
-            if (std::isspace(data_[pos_]) != 0) {
+            if (is_json_whitespace(data_[pos_])) {
                 ++pos_;
             } else if (options_.allow_comments && pos_ + 1 < size_ && data_[pos_] == '/') {
                 if (data_[pos_ + 1] == '/') {
@@ -153,10 +189,14 @@ private:
         const char* start = data_ + pos_;
         const char* current = start;
 
-        // Fast scan for end quote or escape
+        // Fast scan for end quote, an escape, or a raw control character
         while (pos_ < size_) {
             // NOLINTNEXTLINE(readability-identifier-length)
             char c = data_[pos_];
+            // §7: control characters (U+0000..U+001F) MUST be escaped inside a string.
+            if (static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
+                throw std::runtime_error("Unescaped control character in string");
+            }
             if (c == '"') {
                 // Bulk append everything we've scanned
                 string_buffer_.append(current, data_ + pos_ - current);
@@ -234,10 +274,10 @@ private:
                             append_utf8(string_buffer_, codepoint);
                         }
                     } else {
-                        // Preserve Unicode escape as-is (current behavior)
-                        if (pos_ + parser_constants::UNICODE_ESCAPE_LENGTH > size_) {
-                            break;
-                        }
+                        // Preserve Unicode escape as-is (round-trip fidelity). The four
+                        // digits are validated first: preserving `\uqqqq` as text is how
+                        // it used to slip through.
+                        expect_unicode_escape_digits();
                         string_buffer_ += "\\u";
                         for (int i = 0; i < parser_constants::UNICODE_ESCAPE_LENGTH; ++i) {
                             string_buffer_ += advance();
@@ -246,8 +286,7 @@ private:
                     break;
                 }
                 default:
-                    string_buffer_ += escaped;
-                    break;
+                    throw_invalid_escape(escaped);
                 }
                 current = data_ + pos_;
             } else {

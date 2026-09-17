@@ -677,6 +677,23 @@ CLI support:
 ./build/jsom validate --comments config.jsonc
 ```
 
+## Lexical rules (always enforced)
+
+Three of the RFC 8259 lexical rules are not configurable — they are what makes a
+document valid JSON, so they are enforced however the parser is called:
+
+1. a raw control character (U+0000–U+001F) inside a string is rejected (§7 requires it
+   escaped) — `Unescaped control character in string`
+2. `\u` must be followed by exactly four hex digits — `Invalid hex digit in unicode escape`
+3. an escape outside `" \ / b f n r t u` is rejected — `Invalid escape sequence: \U`
+   (this also removes an old wart where `"\U0041"` was accepted with its backslash
+   silently dropped, altering the document)
+4. whitespace is exactly space, tab, LF and CR (§2) — formfeed and vertical tab are not
+   whitespace, which also fixes a latent bug: `std::isspace()` is locale-dependent
+
+Cost: +1.5% on string-heavy parsing, nothing measurable elsewhere (measured; see
+"Lexical rules" in `OPTIMIZATIONS.md`).
+
 ## Number validation (opt-in)
 
 Numbers are stored lazily — JSOM keeps the original text so round trips are byte-exact
@@ -690,7 +707,14 @@ JsonParseOptions options;
 options.validate_numbers = true;                  // rejects "Invalid number: 01"
 auto doc = parse_document(json, options);
 
-auto strict = parse_document(json, ParsePresets::Strict);  // the same thing, as a preset
+auto strict = parse_document(json, ParsePresets::Validate);  // the same thing, as a preset
+```
+
+The same switch on the command line:
+
+```bash
+jsom validate --validation=numbers data.json   # also enforce the number grammar
+jsom format   --validation=numbers data.json   # ...while formatting
 ```
 
 Cost, measured on a Release build (see "Number validation" in `OPTIMIZATIONS.md`):

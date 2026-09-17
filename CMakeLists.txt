@@ -151,6 +151,9 @@ add_executable(jsom_tests
 
     # Opt-in number validation tests
     tests/test_number_validation.cpp     # strict number grammar switch (default off)
+
+    # Lexical conformance (always on: escapes, control chars, whitespace)
+    tests/test_lexical_conformance.cpp   # the spec rules, enforced regardless of options
 )
 
 target_link_libraries(jsom_tests

@@ -263,7 +263,7 @@ by `NestingLimitTest.EmptyContainersDoNotConsumeTheNestingBudget`.
 
 ## Number validation (2026-09-16) — what strictness costs
 
-`JsonParseOptions::validate_numbers` (default **off**, `ParsePresets::Strict` turns it on)
+`JsonParseOptions::validate_numbers` (default **off**, `ParsePresets::Validate` turns it on)
 checks the RFC 8259 §6 number grammar over the text the scan already collected. Measured
 on a Release build, 5 rounds per case reporting the best, two builds compiled from the
 same probe and run in the same session:
@@ -284,6 +284,33 @@ The cost of the *switch itself* on the default path is a predictable branch per 
 0.2374 → 0.2403 ms on the short-number case (+1.2%), within noise on the other two.
 Number-heavy benchmarks are the worst case for reading that off — for a mixed payload
 the branch is invisible.
+
+---
+
+## Lexical rules (2026-09-16) — the conformance rules that are always on
+
+Escape validation, control-character rejection and the whitespace set (CONFORMANCE.md
+Finding 2) are unconditional, so unlike the number grammar they cost every parse. The
+only path that pays is the string scan: one extra comparison per byte
+(`if (c < 0x20) throw`), because the escape checks only fire on a backslash.
+
+Interleaved A/B, 4 rounds per binary, same probe source, median reported:
+
+| benchmark | before | after | delta |
+|---|---|---|---|
+| parse strings 1000 | 56.78 ms | 57.64 ms | **+1.5%** |
+| parse objects 2000 | 266.1 ms | 262.0 ms | −1.5% (noise) |
+| parse longkey obj 2000 | 245.9 ms | 236.7 ms | −3.7% (noise) |
+| parse numbers 2000 | 91.3 ms | 88.1 ms | −3.5% (noise) |
+| parse deep 200 | 5.75 ms | 5.60 ms | −2.7% (noise) |
+| serialize objects 2000 | 33.10 ms | 33.38 ms | +0.8% (noise) |
+
+So the honest number is **+1.5% on string-heavy input, nothing measurable elsewhere**.
+Two things kept it that cheap, and both are worth keeping if this ever grows: the check
+is folded into the loop that already reads each byte (no second pass), and it is a single
+unsigned comparison rather than a table lookup or a `std::isspace` call. If a future rule
+needs more than one predicate per byte, the alternative is a 256-entry class table with
+one load and test per byte — measure both before choosing.
 
 ---
 

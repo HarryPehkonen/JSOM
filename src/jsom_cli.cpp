@@ -170,6 +170,10 @@ EXAMPLES:
 // NOLINTEND(readability-function-size)
 
 // Format command with advanced formatting options
+/// Maps `--validation=<value>` onto the parse options. Defined below with the other
+/// command helpers; declared here because `format` uses it too.
+auto apply_validation_option(const std::string& value, jsom::JsonParseOptions& options) -> bool;
+
 auto format_command(const std::vector<std::string>& args) -> int {
     const std::string PRESET_SWITCH = "--preset=";
     const std::string INDENT_SWITCH = "--indent=";
@@ -215,6 +219,9 @@ CUSTOM OPTIONS:
     --intelligent-wrap  Enable intelligent array wrapping (multiple elements per line)
     --no-intelligent-wrap  Disable intelligent array wrapping
     --comments          Allow // and /* */ comments in input
+    --validation=lazy|numbers
+                        'numbers' also enforces the RFC 8259 number grammar
+                        (escapes, control characters and whitespace are always validated)
 
 INSPECTION:
     --dump              Show all settings for the selected preset
@@ -284,6 +291,11 @@ EXAMPLES:
             options.intelligent_wrapping = false;
         } else if (arg == "--comments") {
             parse_options.allow_comments = true;
+        } else if (arg.rfind("--validation=", 0) == 0) {
+            if (!apply_validation_option(arg.substr(std::string("--validation=").size()),
+                                         parse_options)) {
+                return 1;
+            }
         } else if (arg == "--dump") {
             dump_settings = true;
         } else if (arg[0] != '-') {
@@ -315,10 +327,34 @@ EXAMPLES:
     }
 }
 
+/// Maps `--validation=<value>` onto the parse options. The lexical rules (escapes,
+/// control characters, whitespace) are enforced unconditionally, so the only thing the
+/// value can change is whether the number grammar is checked too:
+///
+///     --validation=lazy      the default: numbers keep the extension behaviour
+///     --validation=numbers   enforce the RFC 8259 §6 number grammar as well
+///
+/// Returns false (and explains) for anything else.
+auto apply_validation_option(const std::string& value, jsom::JsonParseOptions& options) -> bool {
+    if (value == "lazy") {
+        options.validate_numbers = false;
+        return true;
+    }
+    if (value == "numbers") {
+        options.validate_numbers = true;
+        return true;
+    }
+    std::cerr << "Unknown --validation value: " << value
+              << " (expected 'lazy' or 'numbers'; escapes, control characters and "
+                 "whitespace are always validated)\n";
+    return false;
+}
+
 // Validate command
 auto validate_command(const std::vector<std::string>& args) -> int {
     if (args.size() < 3) {
-        std::cerr << "Usage: jsom validate [--comments] <file1> [file2] ...\n";
+        std::cerr << "Usage: jsom validate [--comments] [--validation=lazy|numbers] "
+                     "<file1> [file2] ...\n";
         return 1;
     }
 
@@ -329,13 +365,24 @@ auto validate_command(const std::vector<std::string>& args) -> int {
         const auto& filename = args[i];
         if (filename == "--help") {
             std::cout << "Validate JSON files\n\n";
-            std::cout << "USAGE: jsom validate [--comments] <file1> [file2] ...\n";
+            std::cout << "USAGE: jsom validate [--comments] [--validation=lazy|numbers] "
+                         "<file1> [file2] ...\n";
             std::cout << "\nOPTIONS:\n";
-            std::cout << "    --comments    Allow // and /* */ comments\n";
+            std::cout << "    --comments            Allow // and /* */ comments\n";
+            std::cout << "    --validation=numbers  Also enforce the RFC 8259 number grammar\n";
+            std::cout << "    --validation=lazy     Leave numbers lazy (the default)\n";
+            std::cout << "\nEscapes, control characters and whitespace are validated always.\n";
             return 0;
         }
         if (filename == "--comments") {
             parse_options.allow_comments = true;
+            continue;
+        }
+        if (filename.rfind("--validation=", 0) == 0) {
+            if (!apply_validation_option(filename.substr(std::string("--validation=").size()),
+                                         parse_options)) {
+                return 1;
+            }
             continue;
         }
 

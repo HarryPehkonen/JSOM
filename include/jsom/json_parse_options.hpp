@@ -67,9 +67,10 @@ public:
     /// Comment-tolerant parsing - allows // and /* */ comments
     static const JsonParseOptions Comments;
 
-    /// Strict parsing - validates numbers against the RFC 8259 grammar while scanning.
-    /// Everything else matches the default preset.
-    static const JsonParseOptions Strict;
+    /// Validate preset - also enforces the RFC 8259 number grammar while scanning.
+    /// The lexical rules (escapes, control characters, whitespace) are always enforced,
+    /// so this preset is about the one remaining leniency: numbers.
+    static const JsonParseOptions Validate;
 };
 
 /**
@@ -96,7 +97,7 @@ inline const JsonParseOptions ParsePresets::Comments = {
     false  // validate_numbers
 };
 
-inline const JsonParseOptions ParsePresets::Strict = {
+inline const JsonParseOptions ParsePresets::Validate = {
     false, // convert_unicode_escapes
     false, // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
