@@ -592,7 +592,8 @@ public:
     }
 };
 
-// Optimized parse function that replaces the slow streaming parser
+// Parse function: the only parser (the legacy event-based streaming parser was removed
+// on 2026-09-16; see parse_document.hpp)
 inline auto parse_document_fast(const std::string& json) -> JsonDocument {
     FastParser parser;
     return parser.parse(json);

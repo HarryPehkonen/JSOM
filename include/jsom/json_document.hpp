@@ -36,7 +36,6 @@ using JsonStorage = std::variant<std::monostate,                      // null
                                  >;
 
 class JsonDocument {
-    friend class DocumentBuilder;
     friend class NavigationEngine;
     friend class JsonFormatter;
     friend class FastParser;

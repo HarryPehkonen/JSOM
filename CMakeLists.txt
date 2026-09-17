@@ -113,7 +113,6 @@ add_executable(jsom_tests
     tests/test_main.cpp
     tests/test_lazy_number.cpp           # LazyNumber class tests
     tests/test_json_document.cpp         # JsonDocument with std::variant
-    tests/test_document_builder.cpp      # Integration tests
     tests/test_api_compatibility.cpp     # API examples validation
 
     # JSON Pointer tests

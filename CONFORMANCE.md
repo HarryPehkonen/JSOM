@@ -146,11 +146,10 @@ back as text. Only reachable for input that is invalid JSON (now rejected); maki
 re-readable would mean emitting raw bytes (invalid JSON) or decoding `\uXXXX` (the
 `convert_unicode_escapes` mode, where it already round-trips).
 
-## Finding 4 — the streaming path cannot parse empty containers (found 2026-09-16)
+## Finding 4 — the streaming path could not parse empty containers (removed 2026-09-16)
 
-Pre-existing and unrelated to the depth work, but worth recording because it was found
-while testing the streaming path's depth contract: `parse_document_streaming()` throws
-on every empty container.
+The event-based streaming path (`StreamingParser` + `DocumentBuilder` +
+`parse_document_streaming()`) threw on every empty container:
 
 ```text
 []            -> Parse error at position 2 (path: /0): Unexpected character
@@ -159,21 +158,36 @@ on every empty container.
 [1] / [[1]]   -> fine
 ```
 
-The event stream itself is correct — the fast parser accepts all of these, and the
-enter/value events for the streaming path carry the right paths — so this is in
-`StreamingParser`'s state machine, on the path that the fuzzer has never reached
-(`tests/fuzzer.cpp` exercises `parse_document` only, and the streaming parser is
-described in the code as "legacy, for compatibility/debugging"). It is the same class
-of gap as Finding 2: an oracle that never sees a shape cannot report it.
+The cause was one missing state in `StreamingParser`: after `[` it returned to
+"expecting a value", so an immediately following `]` was "Unexpected character".
+
+**Resolution: the whole path was deleted rather than fixed** (2026-09-16). Reviewing it
+turned up three things that made repair the wrong call:
+
+- **No consumers.** The only callers were the README example and a test. No CLI, no
+  benchmark, no fuzzer, no product code.
+- **Nothing gained.** `parse_document_streaming()` returned the same model as
+  `parse_document()`, slower; its "bounded memory" claim was false once a DOM was
+  assembled, and its no-recursion advantage died with the depth limit (which it also
+  enforced).
+- **It disagreed with the parser.** Spot-checking must-reject suite files showed it
+  *accepting* raw control characters and raw tabs in strings that `FastParser` now
+  rejects — i.e. two implementations, two definitions of "valid JSON". It had zero fuzz
+  coverage, which is why these survived, and it still carried the `std::isspace`
+  locale bug.
+
+So JSOM now has one parser and one set of rules. The code is in git history
+(`37aa01d` and earlier) if a streaming/SAX use case ever appears — it should come back
+with a fuzz target from day one, which this path never had.
 
 ## Next steps
 
 1. **The judged classes are clean**: `y_` 95/95 and `n_` 188/188 with
    `--validation=numbers`. The lexical rules are unconditional, so the default mode
    already reaches 162/188 — nothing here is waiting on a decision.
-2. **The streaming path is the remaining known defect** (Finding 4): `parse_document_streaming()`
-   rejects `[]` and `{"a":{}}`. Pre-existing, on the legacy path, and the one subsystem
-   with no fuzz coverage of its own.
+2. **One parser** (2026-09-16): the event-based streaming path was deleted rather than
+   repaired — unused, unfuzzed, and it disagreed with `FastParser` on what is valid JSON
+   (Finding 4).
 3. Consider making `run_conformance` part of the gate set. It accepts
    `--validation=numbers` so CI can assert the strict verdict, and the lexical rules make
    the default verdict meaningful too (162/188 rather than 146/188).

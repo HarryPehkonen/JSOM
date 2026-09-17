@@ -30,7 +30,6 @@ A fast, modern C++17 library for working with JSON data in memory. Features lazy
 - **Iteration support** - Range-for on arrays, structured bindings on objects via `items()`
 - **Comparison operators** - Full set of `==`, `!=`, `<`, `>`, `<=`, `>=` with deep structural comparison
 - **Comment-tolerant parsing** - Optional `//` and `/* */` comment support for config files
-- **Streaming parsing** - Event-based `StreamingParser` with JSON Pointer paths for incremental input
 - **Bounded recursion** - Every traversal is depth-limited (default 256, tunable), so no input can exhaust the stack
 
 ## Performance
@@ -411,48 +410,15 @@ auto unicode_doc = parse_document(R"({"text": "\u0041\uD83D\uDE00"})", ParsePres
 // Converts to UTF-8: "A "
 ```
 
-### Streaming and Event-Based Parsing
+### One parser
 
-For large inputs, or when you don't need the whole document in memory, `StreamingParser`
-emits events as it parses instead of building a model. Each event carries the value's
-RFC 6901 JSON Pointer path:
-
-```cpp
-#include <jsom/jsom.hpp>
-
-jsom::StreamingParser parser;
-
-jsom::ParseEvents events;
-events.on_value = [](const jsom::JsonDocument& value, const std::string& path) {
-    std::cout << path << " = " << value.to_json() << "\n";
-};
-events.on_enter_object = [](const std::string& path) { /* object starts at path */ };
-events.on_enter_array = [](const std::string& path) { /* array starts at path */ };
-events.on_exit_container = [](const std::string& path) { /* container at path ends */ };
-events.on_error = [](const jsom::ParseError& err) {
-    std::cerr << "Parse error at position " << err.position << ": " << err.message << "\n";
-};
-parser.set_events(events);
-
-// Feed input all at once, or incrementally as it arrives
-parser.parse_string(json_text);          // whole string
-// parser.feed_character(c);             // ...or one character at a time
-parser.end_input();                      // signal end of input
-```
-
-All callbacks are optional -- unset events are simply skipped. `reset()` returns the
-parser to its initial state for reuse.
-
-To run the streaming pipeline but still get a complete `JsonDocument` (the events are
-consumed by an internal `DocumentBuilder`):
-
-```cpp
-auto doc = jsom::parse_document_streaming(json_text);  // same model as parse_document()
-```
-
-For typical workloads prefer `parse_document()`, which uses the faster
-direct-construction parser; the streaming variant trades speed for incremental input
-and bounded memory.
+There is one parser: `FastParser`, behind `parse_document()`. A second, event-based
+implementation (`StreamingParser`, with builders that reassembled a document from its
+events) was removed on 2026-09-16. It returned the same model as `parse_document()` while
+being slower, had no callers, no fuzz coverage — and answered "is this valid JSON?"
+differently from the parser above (it accepted raw control characters in strings).
+Keeping two parsers meant implementing and fuzzing every rule twice; it is in git history
+if a streaming/SAX use case ever shows up.
 
 ### Error Handling
 ```cpp

@@ -103,15 +103,6 @@ auto document_depth(const JsonDocument& doc) -> int {
     return deepest;
 }
 
-/// Exactly `depth` nested arrays with a scalar at the bottom: `[[…42…]]`. The streaming
-/// path cannot handle EMPTY containers at all — `[]`, `[[]]` and `{"a":{}}` all fail with
-/// "Unexpected character" (a separate, pre-existing bug in the legacy streaming parser),
-/// so the depth tests give it a value to parse.
-auto nested_arrays_with_value(int depth) -> std::string {
-    const auto n = static_cast<size_t>(depth);
-    return std::string(n, '[') + "42" + std::string(n, ']');
-}
-
 /// Asserts that `json` is rejected *because of its depth*, with the documented
 /// error — not silently accepted and not fatal.
 void expect_depth_rejection(const std::string& json) {
@@ -213,14 +204,6 @@ TEST(NestingLimitTest, PresetsCarryTheDefaultLimit) {
     EXPECT_EQ(ParsePresets::Default.max_depth, kLimit);
     EXPECT_EQ(ParsePresets::Unicode.max_depth, kLimit);
     EXPECT_EQ(ParsePresets::Comments.max_depth, kLimit);
-}
-
-TEST(NestingLimitTest, TheStreamingPathHonoursTheSameLimit) {
-    // parse_document_streaming assembles the document iteratively, so it cannot overflow
-    // the stack — but the contract must not depend on which entry point you called.
-    EXPECT_NO_THROW((void)parse_document_streaming(nested_arrays_with_value(kLimit)));
-    EXPECT_THROW((void)parse_document_streaming(nested_arrays_with_value(kLimit + 1)),
-                 std::runtime_error);
 }
 
 TEST(NestingLimitTest, EmptyContainersDoNotConsumeTheNestingBudget) {

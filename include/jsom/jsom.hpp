@@ -1,15 +1,12 @@
 #pragma once
 
-#include "batch_parser.hpp"
 #include "core_types.hpp"
 #include "fast_parser.hpp"
 #include "json_document.hpp"
 #include "json_format_options.hpp"
 #include "json_formatter.hpp"
 #include "json_parse_options.hpp"
-#include "parse_events.hpp"
-#include "path_node.hpp"
-#include "streaming_parser.hpp"
+#include "parse_document.hpp"
 
 namespace jsom {
 

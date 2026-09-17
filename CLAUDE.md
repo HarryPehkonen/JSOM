@@ -104,11 +104,11 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 - `PathCache`: Multi-level LRU+prefix caching for performance
 - Batch operations and path introspection capabilities
 
-**Parsing System** (`include/jsom/fast_parser.hpp`, `streaming_parser.hpp`, `batch_parser.hpp`):
-- `FastParser`: Optimized direct-construction parsing with optional comment support
-- `StreamingParser`: Event-based parsing for large documents (events defined in `parse_events.hpp`)
-- `batch_parser.hpp`: `parse_document()`/`parse_document_streaming()` entry points; `DocumentBuilder` assembles documents from streaming events
-- `JsonParseOptions`: Configurable Unicode handling and comment tolerance (`allow_comments`)
+**Parsing System** (`include/jsom/fast_parser.hpp`, `parse_document.hpp`):
+- `FastParser`: the only parser — direct-construction recursive-descent, with optional comment support and the RFC 8259 lexical rules always enforced
+- `parse_document.hpp`: the `parse_document()` entry points (default and with options)
+- `JsonParseOptions`: Unicode escape handling (`convert_unicode_escapes`), comment tolerance (`allow_comments`), resource limits (`max_depth`) and the opt-in number grammar (`validate_numbers`)
+- The event-based `StreamingParser` / `DocumentBuilder` / `parse_document_streaming()` were removed on 2026-09-16 (unused, unfuzzed, and answered validity differently from `FastParser`)
 
 **Formatting System** (`include/jsom/json_formatter.hpp`, `json_format_options.hpp`):
 - Intelligent formatting with 5 built-in presets (compact, pretty, config, api, debug)
