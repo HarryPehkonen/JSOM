@@ -4,8 +4,38 @@
 #
 # Requires a clean worktree (nothing uncommitted), then proves the COMMITTED tree is
 # complete by building and testing it from a pristine checkout of HEAD.
-# Deliberate bypass: git push --no-verify
 #
+# A TAG-ONLY push is skipped: re-running ~6 minutes of gates to publish a tag is waste, as
+# long as every tag points at a commit that is already on a remote branch — that commit was
+# validated when the branch was pushed. A tag pointing anywhere else (a local-only commit)
+# still runs the full gate, so nothing unpublished can slip through. Deletions are ignored.
+#
+# Deliberate bypass: git push --no-verify
+zero=0000000000000000000000000000000000000000
+only_tags=1
+unpublished=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "${local_ref:-}" ] && continue
+    if [ "$local_sha" = "$zero" ]; then
+        continue # deletion: nothing to build
+    fi
+    case "$remote_ref" in
+    refs/tags/*)
+        if ! git branch -r --contains "$local_sha" 2>/dev/null | grep -q .; then
+            unpublished=1
+        fi
+        ;;
+    *)
+        only_tags=0
+        ;;
+    esac
+done
+
+if [ "$only_tags" -eq 1 ] && [ "$unpublished" -eq 0 ]; then
+    printf 'pre-push: tag-only push, and the tagged commit is already on a remote branch — gates skipped\n'
+    exit 0
+fi
+
 exec "$(git rev-parse --show-toplevel)/tools/ci.sh" \
     --require-clean \
     tree format build tests asan fuzz tsan std cli conform tidy pristine
