@@ -684,6 +684,30 @@ auto custom_doc = parse_document(json_string, options);
 
 Regular UTF-8 characters in JSON strings work normally without escaping in both modes.
 
+#### Writing Escapes (Formatter)
+
+The formatter has its own escape switch, independent of the parse options:
+
+- `escape_unicode = false` (default) — non-ASCII text is written as UTF-8, unchanged.
+- `escape_unicode = true` — non-ASCII text is written as `\uXXXX`, escaping the
+  **codepoint**: `ä` becomes `\u00e4`, and characters above U+FFFF become a surrogate pair
+  (`😀` → `\ud83d\ude00`). Escaping the bytes instead would emit `\u00c3\u00a4` for `ä`,
+  which reads back as two different characters.
+
+```cpp
+JsonFormatOptions options = FormatPresets::Compact;
+options.escape_unicode = true;
+std::string out = doc.to_json(options);          // "h\u00e4h" for "häh"
+
+// Read it back with a decoding reader: the default parse mode keeps \uXXXX as literal
+// text (round-trip fidelity), so convert on the way in to get the same string out.
+auto same = parse_document(out, ParsePresets::Unicode);
+```
+
+Control characters (U+0000–U+001F) are always escaped — `\n`, `\t`, `\r`, `\b`, `\f`, and
+`\u00XX` for the rest — whatever this option says, because a raw control character is not
+valid JSON. `FormatPresets::Debug` enables `escape_unicode`.
+
 ## Comment-Tolerant Parsing
 
 JSOM supports optional `//` line comments and `/* */` block comments for parsing configuration files, JSONC, and other commented JSON formats. Comments are **disabled by default** for strict JSON compliance.

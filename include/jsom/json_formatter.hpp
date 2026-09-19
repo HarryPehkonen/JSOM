@@ -3,7 +3,9 @@
 #include "constants.hpp"
 #include "json_document.hpp"
 #include "json_format_options.hpp"
+#include "utf8.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <iomanip>
 #include <map>
 #include <sstream>
@@ -60,6 +62,23 @@ private:
     }
 
     // NOLINTBEGIN(readability-function-size)
+    /// Writes `codepoint` as a JSON \u escape: \uXXXX, or a surrogate pair above U+FFFF
+    /// (astral characters), which is the only form a JSON reader can decode.
+    static void append_unicode_escape(std::ostringstream& oss, std::uint32_t codepoint) {
+        const auto stream_flags = oss.flags(); // std::hex is sticky; leave the stream as found
+        oss << std::hex << std::setfill('0');
+        if (codepoint <= 0xFFFFU) {
+            oss << "\\u" << std::setw(character_constants::HEX_WIDTH) << codepoint;
+        } else {
+            const std::uint32_t offset = codepoint - 0x10000U;
+            const std::uint32_t high = 0xD800U + (offset >> 10);
+            const std::uint32_t low = 0xDC00U + (offset & 0x3FFU);
+            oss << "\\u" << std::setw(character_constants::HEX_WIDTH) << high << "\\u"
+                << std::setw(character_constants::HEX_WIDTH) << low;
+        }
+        oss.flags(stream_flags);
+    }
+
     void format_string(std::ostringstream& oss, const std::string& str) const {
         oss << '"';
 
@@ -111,12 +130,26 @@ private:
                 oss << "\\t";
                 break;
             default:
-                if (options_.escape_unicode
-                    && (c < character_constants::MIN_CONTROL_CHAR
-                        || c > character_constants::MAX_ASCII_CHAR)) {
-                    oss << "\\u" << std::hex << std::setfill('0')
-                        << std::setw(character_constants::HEX_WIDTH)
-                        << static_cast<unsigned char>(c);
+                const auto byte = static_cast<unsigned char>(c);
+                if (byte < character_constants::MIN_CONTROL_CHAR) {
+                    // A raw control character is not valid JSON (the parser rejects it), so
+                    // this escape is not optional and does not depend on escape_unicode —
+                    // the serializer in json_document.hpp does the same.
+                    append_unicode_escape(oss, byte);
+                } else if (options_.escape_unicode && byte > character_constants::MAX_ASCII_CHAR) {
+                    // Escape the CODEPOINT, not the byte. Escaping UTF-8 bytes emits
+                    // "\u00c3\u00a4" for "ä", which reads back as two different
+                    // characters — the text would not survive the round trip.
+                    std::uint32_t codepoint = 0;
+                    const std::size_t consumed = utf8::decode(str, i, codepoint);
+                    if (consumed == 0) {
+                        // Invalid UTF-8: escape the byte itself, so the output is at least
+                        // valid JSON and the position is preserved.
+                        append_unicode_escape(oss, byte);
+                    } else {
+                        append_unicode_escape(oss, codepoint);
+                        i += consumed - 1; // the loop increments by one more
+                    }
                 } else {
                     oss << c;
                 }
@@ -231,7 +264,14 @@ private:
 
             if (needs_separator && formatter.would_exceed_width(element_str)
                 && !formatter.is_empty()) {
+                // In multiline mode the line break IS the separator visually, but JSON
+                // still needs the comma: closing the finished line and starting a new one
+                // without it produced `..."juliet"\n  "kilo"` — invalid JSON. The comma
+                // goes after the flushed line and before the break.
                 formatter.output_current_line(oss);
+                if (is_multiline_mode) {
+                    oss << ',';
+                }
                 formatter.start_new_line(oss);
 
                 std::string clean_element = format_element_to_string(element, depth + 1);
