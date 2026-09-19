@@ -177,8 +177,6 @@ SUBCOMMANDS:
 OPTIONS:
     --max-depth=<n>         Maximum depth for path enumeration
     --include-values        Include values in path listings
-    --cache-warm            Pre-warm path cache for performance
-    --cache-stats           Show cache performance statistics
     --format=<fmt>          Output format (json|text|compact)
 
 EXAMPLES:
@@ -609,18 +607,12 @@ auto pointer_bulk_get(const std::string& paths_str, const std::string& input_fil
 }
 
 // Pointer benchmark subcommand
-auto pointer_benchmark(const std::string& paths_str, const std::string& input_file, bool warm_cache)
-    -> int {
+auto pointer_benchmark(const std::string& paths_str, const std::string& input_file) -> int {
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
 
         auto paths = split(paths_str, ',');
-
-        // Warm cache if requested
-        if (warm_cache) {
-            doc.warm_path_cache(paths);
-        }
 
         // Benchmark each path
         std::cout << "Path Access Benchmarks:" << '\n';
@@ -645,15 +637,6 @@ auto pointer_benchmark(const std::string& paths_str, const std::string& input_fi
                       << avg_ns << " ns/access" << '\n';
         }
 
-        // Show cache stats
-        auto stats = doc.get_path_cache_stats();
-        std::cout << std::string(cli_constants::SEPARATOR_LINE_WIDTH, '-') << '\n';
-        std::cout << "Cache Statistics:" << '\n';
-        std::cout << "  Exact cache size: " << stats.exact_cache_size << '\n';
-        std::cout << "  Prefix cache size: " << stats.prefix_cache_size << '\n';
-        std::cout << "  Total entries: " << stats.total_entries << '\n';
-        std::cout << "  Memory usage: " << stats.memory_usage_estimate << " bytes" << '\n';
-
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -674,7 +657,6 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
     // Extract options and file
     std::vector<std::string> options;
     std::string input_file;
-    bool warm_cache = false;
 
     // For most subcommands, we need to identify which arg is the file
     // The pattern is: jsom pointer <subcommand> <path/pattern> [options] [file]
@@ -693,9 +675,7 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
     // Find the file argument (last non-option argument)
     for (size_t i = 3; i < args.size(); ++i) {
         const auto& arg = args[i];
-        if (arg == "--cache-warm") {
-            warm_cache = true;
-        } else if (arg[0] == '-') {
+        if (arg[0] == '-') {
             options.push_back(arg);
         }
     }
@@ -763,7 +743,7 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
             std::cerr << "Usage: jsom pointer benchmark <paths> [file]\n";
             return 1;
         }
-        return pointer_benchmark(args[3], input_file, warm_cache);
+        return pointer_benchmark(args[3], input_file);
 
     } else {
         std::cerr << "Unknown pointer subcommand: " << subcommand << '\n';

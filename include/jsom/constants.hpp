@@ -135,14 +135,6 @@ constexpr int UNICODE_ESCAPE_LENGTH = 4; // \uXXXX
 } // namespace parser_constants
 
 // Path Cache Configuration
-namespace cache_constants {
-constexpr size_t MAX_EXACT_CACHE_SIZE = 1000;
-constexpr size_t MAX_PREFIX_CACHE_SIZE = 5000;
-constexpr size_t MAX_RECENT_PREFIXES = 50;
-constexpr int MAX_PREFIX_AGE_MINUTES = 10;
-constexpr int DEFAULT_PRECOMPUTE_DEPTH = 5;
-constexpr size_t CACHE_EVICTION_HALF_DIVISOR = 2; // Remove half when evicting
-} // namespace cache_constants
 
 // Unicode and Character Constants
 namespace character_constants {

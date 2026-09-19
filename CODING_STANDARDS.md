@@ -28,16 +28,23 @@ Reference: https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines
    guarantees cleanup on throw. Throw `TypeException`/documented exception
    types, never built-ins.
 9. **No global mutable state.** Threaded code must be race-free: mutex/atomic,
-   prefer immutable data. (JSOM is single-threaded today — keep it that way
-   unless there is a measured reason.)
+   prefer immutable data. JSOM's contract is one writer: any number of threads may
+   READ a document at once (const access changes nothing — gated by the `tsan`
+   stage), and nobody may mutate while another thread reads or writes.
 10. **Never keep iterators or references across container mutation.** Re-fetch
     after `set()` / `push_back()` / erase (the Lifetime profile's core rule).
-11. **Zero warnings.** Project targets compile with
+11. **`const` means "changes nothing", including hidden state.** No `mutable`
+    member may be written from a const member function, and no `const_cast` on
+    `this` to get around it: const access must be safe to call concurrently. A
+    cache or counter that has to be updated on a read belongs to the caller, not
+    to the object being read (`src/json_document_pointer.cpp` used to do this and
+    raced; see OPTIMIZATIONS.md "Path cache removed").
+12. **Zero warnings.** Project targets compile with
     `-Wall -Wextra -Wpedantic -Werror` (see CMakeLists.txt — deps like gtest
     are exempt; your code is not).
-12. **TDD.** Write the failing test first, watch it fail, implement, watch it
+13. **TDD.** Write the failing test first, watch it fail, implement, watch it
     pass. Bug fixes too: failing test that isolates the bug → fix → green.
-13. **Sanitizer gate:** all tests must pass under ASan+UBSan before a change is
+14. **Sanitizer gate:** all tests must pass under ASan+UBSan before a change is
     done:
     ```bash
     cmake -B build-asan -DJSOM_SANITIZE=ON
@@ -60,6 +67,9 @@ steps below are what the stages check, in order:
 - [ ] `cmake --build build` — zero warnings (`-Werror`)
 - [ ] `./build/jsom_tests` — all tests pass
 - [ ] `./build-asan/jsom_tests` — clean under ASan+UBSan
+- [ ] `tools/ci.sh tsan` — const reads from several threads are race-free
+      (ThreadSanitizer; ~6 s). Any change touching `JsonDocument` access paths
+      must keep this green.
 - [ ] `make tidy` — no NEW clang-tidy findings vs the baseline
 - [ ] Fuzzing: input-handling changes run the fuzz targets briefly
       (`cmake --build build --target fuzz_quick`); a crash is a bug — fix it,

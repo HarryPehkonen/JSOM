@@ -89,10 +89,19 @@ add_library(JSOM::jsom ALIAS jsom_lib)
 
 # Build options (must be defined before test/benchmark configuration)
 option(JSOM_BUILD_BENCHMARKS "Build JSOM benchmarks" OFF)  # Always OFF unless explicitly enabled
-option(JSOM_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+set(JSOM_SANITIZE "" CACHE STRING
+    "Sanitizers to build with: ON/address (AddressSanitizer + UBSan), thread (ThreadSanitizer), or empty")
 if(JSOM_SANITIZE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+    if(JSOM_SANITIZE STREQUAL "thread")
+        # ThreadSanitizer: the only detector for the data races a shared document can
+        # suffer. Cannot be combined with ASan in one build.
+        set(JSOM_SANITIZE_FLAGS "-fsanitize=thread")
+    else()
+        set(JSOM_SANITIZE_FLAGS "-fsanitize=address,undefined")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${JSOM_SANITIZE_FLAGS} -fno-omit-frame-pointer -g")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${JSOM_SANITIZE_FLAGS}")
+    message(STATUS "  Sanitizers: ${JSOM_SANITIZE_FLAGS}")
 endif()
 
 if(JSOM_IS_TOP_LEVEL)
@@ -149,7 +158,7 @@ add_executable(jsom_tests
     tests/test_ergonomic_construction.cpp # Factory methods and direct constructors
 
     # Cache invalidation tests
-    tests/test_cache_invalidation.cpp    # Validates set()/push_back() invalidate path cache
+    tests/test_navigation_freshness.cpp  # lookups always see the current document
 
     # Iteration tests
     tests/test_iteration.cpp             # Range-for, items(), keys()
@@ -168,6 +177,7 @@ add_executable(jsom_tests
 
     # Lexical conformance (always on: escapes, control chars, whitespace)
     tests/test_lexical_conformance.cpp   # the spec rules, enforced regardless of options
+    tests/test_const_access_safety.cpp   # const reads from several threads (TSan stage)
 )
 
 target_link_libraries(jsom_tests
@@ -194,6 +204,15 @@ add_custom_target(run_tests
     COMMENT "Running all tests"
 )
 endif()  # JSOM_BUILD_TESTS
+
+# Thread-safety probe. Not a gtest binary on purpose: the `tsan` stage in tools/ci.sh
+# builds this one file with ThreadSanitizer, and instrumenting the test framework too
+# would cost minutes per run. It is built in every configuration, so a break here cannot
+# hide until the thread gate runs.
+find_package(Threads REQUIRED)
+add_executable(thread_safety_probe tests/thread_safety_probe.cpp)
+target_link_libraries(thread_safety_probe PRIVATE jsom_lib Threads::Threads)
+target_include_directories(thread_safety_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # ================================
 # Benchmark Configuration
@@ -479,7 +498,7 @@ target_include_directories(jsom PRIVATE
 # Warnings as errors for JSOM's OWN targets only (CODING_STANDARDS.md rule 11).
 # Fetched dependencies (googletest, benchmark, nlohmann_json) keep their own
 # flags — never apply -Werror to them.
-foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks)
+foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks thread_safety_probe)
     if(TARGET ${jsom_target})
         target_compile_options(${jsom_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

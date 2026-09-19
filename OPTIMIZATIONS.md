@@ -314,6 +314,55 @@ one load and test per byte — measure both before choosing.
 
 ---
 
+## Path cache removed (2026-09-19) — measured, then deleted
+
+Every `JsonDocument` used to own a lazily-created three-level path cache (exact paths,
+prefixes, recent prefixes with 10-minute aging) that `at()`, `find()`, `exists()` and
+`at_multiple()` fed on every lookup. It had never been measured. Measured, it lost:
+
+`tools/cache_probe.cpp` (in git history at `3ee8251^`), `-O3 -march=native`, 100 KB
+document of 1000 records, median of 5, cached `at()` vs `NavigationEngine::navigate_simple`
+on the same paths:
+
+| pattern | cached | uncached | ratio |
+|---|---|---|---|
+| repeat one shallow path ×10000 | 2.640 ms | 2.649 ms | 1.00× |
+| shared-prefix sweep (1000 leaves) | 0.303 ms | 0.282 ms | 1.07× |
+| every path once (7003 paths) | 33.810 ms | 1.881 ms | **17.97×** |
+| repeat one 200-deep path ×10000 | 42.909 ms | 69.835 ms | 0.61× |
+| parse + one lookup | 1.032 ms | 1.250 ms | 0.83× |
+| write + read ×2000 | 9.547 ms | 8.334 ms | 1.15× |
+
+Reading every path once — the shape a consumer of a document actually has — was **18×
+slower** with the cache: each lookup misses exactly, then inserts into the exact map, the
+prefix map and the LRU order, and caches every intermediate node (1000-leaf sweep → 1000
+exact + 1001 prefix entries, ~72 KB, for a document that was ~60 KB of text). The one win
+was repeating the *same deep* path (1.6×), which a caller gets by holding the pointer from
+the first lookup.
+
+What deleting it removed, beyond the perf loss:
+
+- **a data race, demonstrated not theorised**: the cache lived behind `mutable` members
+  and was reached from const methods through `const_cast<JsonDocument*>(this)`, so
+  `doc.at(p)` on a shared const document wrote to it. TSan on four threads reading one
+  document reported **71 data races and then a SEGV inside `memmove`**; after removal the
+  same test is clean, and `thread_safety_probe` now gates it in ~6 s.
+- a **raw owning pointer** (`new PathCache()` / `delete path_cache_`) — against the repo's
+  own rule 5 — plus a process-global `s_mutation_epoch_` that every mutation bumped, and
+  cached raw pointers into document storage that could dangle when a child vector grew.
+- wall-clock eviction (`steady_clock`, `MAX_PREFIX_AGE_MINUTES`) inside a core data
+  structure, and the whole `cache_constants` block.
+- the `NOLINT(bugprone-empty-catch)` pair and much of the `readability-function-size`
+  suppression weight.
+
+Replaced by: `NavigationEngine::find(const JsonDocument*, path)` (one implementation, one
+`const_cast` in the mutable overload, so no caller needs its own), `find_multiple()` for
+batches, and a documented lifetime contract — a returned reference dies at the next
+mutation. `tests/test_navigation_freshness.cpp` (9 tests, from the old cache-invalidation
+suite) keeps the property that matters: every lookup sees the current document.
+
+---
+
 ## Status summary / what remains
 
 **Done:** #1 (76× deep nesting), #1b (−9.5/−11.5/−16.1% arrays), #2 (Release

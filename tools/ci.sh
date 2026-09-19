@@ -32,7 +32,7 @@ CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-10}          # smoke only; the real fuzzing i
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format build tests asan fuzz conform tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format build tests asan fuzz tsan conform tidy pristine"}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -59,6 +59,7 @@ Stages:
   tests       ./<build>/jsom_tests
   asan        build-asan (-DJSOM_SANITIZE=ON) + the same tests under ASan+UBSan
   fuzz        libFuzzer smoke run, CI_FUZZ_SECONDS seconds, both configurations
+  tsan        ThreadSanitizer: tests/thread_safety_probe.cpp, const reads from 4 threads
   conform     RFC 8259 suite: asserts --validation=numbers (n_ 188/188), reports default
   tidy        clang-tidy against CI_TIDY_BASELINE (no NEW findings)
   pristine    git archive HEAD -> temp dir -> configure, build, test: proves the
@@ -219,6 +220,28 @@ stage_fuzz() {
         return 0
     fi
     stage_fail fuzz "the fuzzer found something (artifact in corpus/, add a regression test)" "$CI_LOG_DIR/fuzz.log"
+}
+
+stage_tsan() {
+    stage_begin "tsan (const reads from several threads)"
+    if ! command -v g++ >/dev/null 2>&1; then
+        stage_skip tsan "no g++ (ThreadSanitizer needs a compiler with libtsan)"
+        return 0
+    fi
+    # One small probe binary, not the gtest suite: a TSan build of the whole test suite
+    # costs minutes and this repo is header-heavy, so it would rebuild on every commit.
+    cmake -S . -B "$CI_ASAN_BUILD_DIR-tsan" -DJSOM_SANITIZE=thread -DJSOM_BUILD_TESTS=OFF \
+        -DCMAKE_BUILD_TYPE=Debug > "$CI_LOG_DIR/tsan-configure.log" 2>&1 \
+        || stage_fail tsan "cmake configure failed" "$CI_LOG_DIR/tsan-configure.log"
+    cmake --build "$CI_ASAN_BUILD_DIR-tsan" --target thread_safety_probe -j "$CI_JOBS" \
+        > "$CI_LOG_DIR/tsan-build.log" 2>&1 \
+        || stage_fail tsan "probe build failed" "$CI_LOG_DIR/tsan-build.log"
+    if "$CI_ASAN_BUILD_DIR-tsan/thread_safety_probe" > "$CI_LOG_DIR/tsan.log" 2>&1; then
+        tail -n 1 "$CI_LOG_DIR/tsan.log" | sed 's/^/      /'
+        stage_pass tsan
+        return 0
+    fi
+    stage_fail tsan "ThreadSanitizer reported a data race (or a wrong answer)" "$CI_LOG_DIR/tsan.log"
 }
 
 stage_conform() {

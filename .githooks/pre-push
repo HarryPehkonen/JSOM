@@ -8,4 +8,4 @@
 #
 exec "$(git rev-parse --show-toplevel)/tools/ci.sh" \
     --require-clean \
-    tree format build tests asan fuzz conform tidy pristine
+    tree format build tests asan fuzz tsan conform tidy pristine

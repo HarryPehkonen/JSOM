@@ -18,9 +18,6 @@ namespace jsom {
 class NavigationEngine;
 struct NavigationResult;
 
-// Forward declaration for PathCache - actual include happens after JsonDocument declaration
-class PathCache;
-
 // Forward declaration for formatting
 struct JsonFormatOptions;
 class JsonFormatter;
@@ -45,7 +42,6 @@ private:
     JsonStorage storage_;
 
     // Path cache for this document instance (managed manually to avoid forward declaration issues)
-    mutable PathCache* path_cache_;
 
     void validate_type(JsonType expected) const {
         if (type_ != expected) {
@@ -73,22 +69,17 @@ private:
     }
 
 public:
-    JsonDocument() : type_(JsonType::Null), storage_(std::monostate{}), path_cache_(nullptr) {}
+    JsonDocument() : type_(JsonType::Null), storage_(std::monostate{}) {}
 
     // Destructor
     ~JsonDocument();
 
     // Copy constructor
-    JsonDocument(const JsonDocument& other)
-        : type_(other.type_), storage_(other.storage_), path_cache_(nullptr) {
-        // path_cache_ is left as nullptr - will be created lazily if needed
-    }
+    JsonDocument(const JsonDocument& other) : type_(other.type_), storage_(other.storage_) {}
 
     // Move constructor
     JsonDocument(JsonDocument&& other) noexcept
-        : type_(other.type_), storage_(std::move(other.storage_)), path_cache_(other.path_cache_) {
-        other.path_cache_ = nullptr; // Transfer ownership
-    }
+        : type_(other.type_), storage_(std::move(other.storage_)) {}
 
     // Copy assignment
     // Copy assignment - defined in implementation file
@@ -98,39 +89,33 @@ public:
     auto operator=(JsonDocument&& other) noexcept -> JsonDocument&;
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(bool value) : type_(JsonType::Boolean), storage_(value), path_cache_(nullptr) {}
+    JsonDocument(bool value) : type_(JsonType::Boolean), storage_(value) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(int value)
-        : type_(JsonType::Number), storage_(LazyNumber(value)), path_cache_(nullptr) {}
+    JsonDocument(int value) : type_(JsonType::Number), storage_(LazyNumber(value)) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(double value)
-        : type_(JsonType::Number), storage_(LazyNumber(value)), path_cache_(nullptr) {}
+    JsonDocument(double value) : type_(JsonType::Number), storage_(LazyNumber(value)) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(const std::string& value)
-        : type_(JsonType::String), storage_(value), path_cache_(nullptr) {}
+    JsonDocument(const std::string& value) : type_(JsonType::String), storage_(value) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(const char* value)
-        : type_(JsonType::String), storage_(std::string(value)), path_cache_(nullptr) {}
+    JsonDocument(const char* value) : type_(JsonType::String), storage_(std::string(value)) {}
 
     // Prevent nullptr from calling const char* overload (would be UB via std::string(nullptr))
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(std::nullptr_t)
-        : type_(JsonType::Null), storage_(std::monostate{}), path_cache_(nullptr) {}
+    JsonDocument(std::nullptr_t) : type_(JsonType::Null), storage_(std::monostate{}) {}
 
     JsonDocument(std::initializer_list<std::pair<const std::string, JsonDocument>> init)
-        : type_(JsonType::Object), storage_(std::map<std::string, JsonDocument>(init)),
-          path_cache_(nullptr) {}
+        : type_(JsonType::Object), storage_(std::map<std::string, JsonDocument>(init)) {}
 
     // Direct container constructors - efficient when you already have JsonDocument containers
     explicit JsonDocument(std::map<std::string, JsonDocument> obj)
-        : type_(JsonType::Object), storage_(std::move(obj)), path_cache_(nullptr) {}
+        : type_(JsonType::Object), storage_(std::move(obj)) {}
 
     explicit JsonDocument(std::vector<JsonDocument> arr)
-        : type_(JsonType::Array), storage_(std::move(arr)), path_cache_(nullptr) {}
+        : type_(JsonType::Array), storage_(std::move(arr)) {}
 
     static auto from_lazy_number(const std::string& repr) -> JsonDocument {
         JsonDocument doc;
@@ -186,7 +171,6 @@ public:
         std::string out = std::move(std::get<std::string>(storage_));
         storage_ = std::monostate{};
         type_ = JsonType::Null;
-        invalidate_cache();
         return out;
     }
     auto is_object() const -> bool { return type_ == JsonType::Object; }
@@ -326,13 +310,11 @@ public:
     void push_back(const JsonDocument& value) {
         validate_type(JsonType::Array);
         std::get<std::vector<JsonDocument>>(storage_).push_back(value);
-        invalidate_cache();
     }
 
     void push_back(JsonDocument&& value) {
         validate_type(JsonType::Array);
         std::get<std::vector<JsonDocument>>(storage_).push_back(std::move(value));
-        invalidate_cache();
     }
 
     static auto make_array() -> JsonDocument { return JsonDocument(std::vector<JsonDocument>{}); }
@@ -384,7 +366,6 @@ public:
     void set(const std::string& key, const JsonDocument& value) {
         validate_type(JsonType::Object);
         std::get<std::map<std::string, JsonDocument>>(storage_)[key] = value;
-        invalidate_cache();
     }
 
     void set(std::size_t index, const JsonDocument& value) {
@@ -394,7 +375,6 @@ public:
             arr.resize(index + 1);
         }
         arr[index] = value;
-        invalidate_cache();
     }
 
     // rvalue overload (OPTIMIZATIONS.md #1): array parsing was deep-copying
@@ -408,7 +388,6 @@ public:
             arr.resize(index + 1);
         }
         arr[index] = std::move(value);
-        invalidate_cache();
     }
 
     void set(const std::string& key, JsonDocument&& value) {
@@ -417,14 +396,12 @@ public:
         // construction before the move-assign (OPTIMIZATIONS.md #6).
         std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(key,
                                                                                  std::move(value));
-        invalidate_cache();
     }
 
     void set(std::string&& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
         std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(std::move(key),
                                                                                  std::move(value));
-        invalidate_cache();
     }
 
     auto to_json() const -> std::string {
@@ -482,27 +459,7 @@ public:
     auto find_paths(const std::string& pattern) const -> std::vector<std::string>;
     auto count_paths() const -> size_t;
 
-    // Performance tuning for path operations
-    void precompute_paths(int max_depth = cache_constants::DEFAULT_PRECOMPUTE_DEPTH) const;
-    void warm_path_cache(const std::vector<std::string>& likely_paths) const;
-    void clear_path_cache() const;
-
-    // Path cache statistics
-    struct PathCacheStats {
-        size_t exact_cache_size;
-        size_t prefix_cache_size;
-        size_t total_entries;
-        size_t memory_usage_estimate;
-        double avg_prefix_length;
-    };
-
-    auto get_path_cache_stats() const -> PathCacheStats;
-
 private:
-    // Get or create path cache for this document
-    auto get_path_cache() const -> PathCache&;
-    // Invalidate path cache after structural mutations
-    void invalidate_cache();
     /// One check for every traversal in this class: refuse to recurse past the
     /// documented nesting limit rather than overflowing the stack. `level` is the
     /// node's own level, counting the root as 1 — the same convention the parser uses,

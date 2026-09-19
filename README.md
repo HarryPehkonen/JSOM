@@ -409,29 +409,33 @@ arr.push_back(1);
 arr.push_back("two");
 ```
 
-##### Reference Invalidation and Cache Safety
+##### Reference Invalidation, and Thread Safety
 
-References obtained from `operator[]`, `at()`, `as_array()`, or `as_object()` follow
-standard C++ container rules: any mutation that can reallocate the underlying container
-(`push_back`, or an index-based `set()` that grows an array) invalidates references and
-pointers into it.
-
-The internal JSON Pointer caches are exempt from this concern: every mutation increments
-a global mutation epoch, so cached paths held by this document *or any ancestor* are
-detected as stale and re-navigated instead of dereferencing freed memory. You never need
-to manually clear caches after mutating.
+References obtained from `operator[]`, `at()`, `as_array()`, or `as_object()` point into
+the document's own storage, so they follow ordinary container rules: any mutation
+invalidates them — `push_back`, or an index-based `set()` that grows an array, can
+reallocate. Navigation never caches anything behind your back, so a lookup always
+reflects the current document:
 
 ```cpp
 auto& name = doc.at("/users/0/name");   // reference into the document
 doc.at("/users").push_back(new_user);   // may reallocate the users array...
 // `name` may now dangle (standard vector rules) -- re-navigate instead:
-auto& fresh = doc.at("/users/0/name");  // cache detects the mutation, safe
+auto& fresh = doc.at("/users/0/name");  // always the current value
 
 // For structural changes deep in a document, prefer the root-level
 // JSON Pointer mutators, which avoid holding references across mutations:
 doc.set_at("/users/0/name", "Alice");
 doc.remove_at("/users/0/temp");
 ```
+
+**Thread safety.** Reading a document is safe from any number of threads at once:
+`at()`, `find()`, `exists()`, `at_multiple()`, `list_paths()` and serialization touch
+nothing that changes, which is enforced by the `tsan` gate (`tests/thread_safety_probe.cpp`
+built with ThreadSanitizer). Mutating a document while another thread reads or writes it
+is not supported — and since a returned reference points into the document, handing one
+to another thread while anyone continues to mutate is a data race like any other.
+The rule is one writer, and readers only while nobody writes.
 
 #### JSON Pointer Operations
 ```cpp
@@ -568,25 +572,24 @@ auto user_emails = doc.find_paths("/users/*/email");
 size_t path_count = doc.count_paths();
 ```
 
-### Performance Optimizations
+### Performance
 
-JSOM includes advanced caching for high-performance path operations:
-
-- **Multi-level caching**: LRU cache for exact paths, prefix cache for related operations
-- **Prefix optimization**: Intelligent caching of intermediate path segments
-- **Batch optimization**: Sorted processing for maximum cache reuse
+Path operations go straight to the data: no cache sits between you and the document, so
+a lookup cannot go stale and const reads stay thread-safe. That is a measured choice —
+a three-level path cache used to sit here, and it was a net loss (17.97x slower on
+reading every path once, 1.07x on a shared-prefix sweep, break-even on repeated shallow
+lookups) except for one case: repeating the *same deep* path, where it was 1.6x faster.
+If you have that pattern, hold on to the pointer from the first lookup:
 
 ```cpp
-// Pre-warm cache for known access patterns
-std::vector<std::string> likely_paths = {"/users/0/name", "/users/0/profile"};
-doc.warm_path_cache(likely_paths);
-
-// Precompute paths for complex documents
-doc.precompute_paths(3); // Precompute up to depth 3
-
-// Get cache performance statistics
-auto stats = doc.get_path_cache_stats();
+const auto* leaf = doc.find("/very/deep/path/to/a/leaf");  // navigate once
+for (int i = 0; i < 10'000; ++i) {
+    sink = leaf->as<std::string>().size();                 // no re-navigation
+}
 ```
+
+Batch operations are supported through `at_multiple()`, which navigates the paths you
+give it in one call and returns the results in the same order.
 
 ### Command Line Interface
 
@@ -859,7 +862,6 @@ JSOM uses a modern C++17 architecture:
 - **`std::variant`** for type-safe JSON value storage
 - **`LazyNumber`** class for deferred number parsing with format preservation
 - **`FastParser`** with direct construction to eliminate allocation overhead
-- **`PathCache`** with LRU eviction and prefix optimization
 - **`JsonFormatter`** with intelligent layout algorithms
 
 See `FORMATTING.md` for detailed documentation of the formatting system.
