@@ -125,8 +125,13 @@ require_tool() {
 }
 
 # The file set the format gate owns: same list in the CMake `format` target.
+# Includes untracked (but not ignored) files: while working, a new source file is not in
+# `git ls-files` yet, and a gate that cannot see it would let it through unformatted —
+# it only surfaced the first time because the push hook saw it after it was committed.
 ci_sources() {
-    git ls-files 'include/jsom/*.hpp' 'src/*.cpp' 'tests/*.cpp' 'tools/*.cpp' 'benchmarks/*.cpp'
+    git ls-files --cached --others --exclude-standard -- \
+        'include/jsom/*.hpp' 'src/*.cpp' 'tests/*.cpp' 'tools/*.cpp' 'benchmarks/*.cpp' \
+        | sort -u
 }
 
 mkdir -p "$CI_LOG_DIR"

@@ -32,12 +32,9 @@ constexpr int kRounds = 400;
 
 TEST(ConstAccessSafetyTest, ConcurrentConstReadsAreCorrect) {
     const auto doc = jsom::parse_document(kJson);
-    const std::vector<std::string> paths = {"/count",
-                                            "/items",
-                                            "/items/0",
-                                            "/items/0/name",
-                                            "/items/1/id",
-                                            "/nested/deep/deeper/value"};
+    const std::vector<std::string> paths
+        = {"/count",        "/items",      "/items/0",
+           "/items/0/name", "/items/1/id", "/nested/deep/deeper/value"};
 
     std::atomic<int> reads{0};
     std::atomic<int> wrong_answers{0};

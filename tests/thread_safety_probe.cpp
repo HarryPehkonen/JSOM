@@ -30,12 +30,9 @@ constexpr int kRounds = 500;
 
 auto main() -> int {
     const auto doc = jsom::parse_document(kJson);
-    const std::vector<std::string> paths = {"/count",
-                                            "/items",
-                                            "/items/0",
-                                            "/items/0/name",
-                                            "/items/1/id",
-                                            "/nested/deep/deeper/value"};
+    const std::vector<std::string> paths
+        = {"/count",        "/items",      "/items/0",
+           "/items/0/name", "/items/1/id", "/nested/deep/deeper/value"};
 
     std::vector<int> failures(static_cast<size_t>(kThreads), 0);
 
