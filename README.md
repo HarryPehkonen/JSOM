@@ -62,7 +62,7 @@ To release: edit that one line, rebuild, tag `v<version>`.
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - CMake 3.10+
 
-**Note:** The library uses C++17 internally but works seamlessly with projects using C++20, C++23, or any future C++ standard. Your project is not forced to use a specific C++ version.
+**Note:** The library uses C++17 internally but works seamlessly with projects using C++20, C++23, or any future C++ standard. Your project is not forced to use a specific C++ version. This is tested rather than assumed: the `std` stage of `tools/ci.sh` compiles and runs `tools/std_probe.cpp` under `-std=c++17`, `-std=c++20` and `-std=c++23`.
 
 ### ⚠ Safety Note
 **Always stay in the project root directory when possible.** Avoid changing to `./build/` directory during development to prevent accidental `rm -rf *` commands from deleting your entire project. Use relative paths like `./build/jsom_tests` instead of changing directories.
@@ -125,7 +125,13 @@ tools/ci.sh --list                     # what the stages are
 | hook | runs | cost |
 |---|---|---|
 | `pre-commit` | `build tests` | ~15 s |
-| `pre-push` | `tree format build tests asan fuzz conform tidy pristine` | ~2–4 min |
+| `pre-push` | `tree format build tests asan fuzz tsan std conform tidy pristine` | ~2–5 min |
+
+Stages beyond the obvious ones: **`tsan`** builds `tests/thread_safety_probe.cpp` with
+ThreadSanitizer and hammers one const document from four threads (~6 s — reading a
+document must not mutate anything); **`std`** compiles and runs `tools/std_probe.cpp` as
+C++17, C++20 and C++23, which is what makes the "C++20/C++23 supported" claim below a
+tested fact rather than a promise.
 
 A failing stage stops the run, blocks the commit or push, and prints its reason plus the
 tail of its log; full output lands in `.ci-logs/<stage>.log`. The bypass is git's own:

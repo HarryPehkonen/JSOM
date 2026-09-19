@@ -130,7 +130,9 @@ struct Failure {
 } // namespace
 
 int main(int argc, char** argv) {
-    fs::path suite{"third_party/json_test_suite"};
+    // Default to the vendored corpus in the SOURCE tree (baked in at configure time), so
+    // the runner works from any working directory; an explicit path still overrides it.
+    fs::path suite{std::string{JSOM_SOURCE_DIR} + "/third_party/json_test_suite"};
     bool list = false;
     bool quiet = false;
     bool verbose = false;

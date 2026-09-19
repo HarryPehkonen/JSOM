@@ -192,6 +192,10 @@ target_include_directories(jsom_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+# Tests read vendored data (the RFC 8259 corpus) from the source tree, so the path is
+# baked in: with a relative path the corpus test passed from the project root and failed
+# under `ctest`, which runs from the build directory.
+target_compile_definitions(jsom_tests PRIVATE JSOM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Discover and register tests with CTest
 include(GoogleTest)
@@ -431,6 +435,9 @@ add_executable(jsom_conformance
 )
 target_include_directories(jsom_conformance PRIVATE include)
 target_compile_options(jsom_conformance PRIVATE -Wall -Wextra -Wpedantic -Werror)
+# The vendored corpus lives in the source tree; bake the path in so the runner (and the
+# test that reads the same files) works from any working directory.
+target_compile_definitions(jsom_conformance PRIVATE JSOM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_custom_target(run_conformance
     COMMAND jsom_conformance ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json_test_suite

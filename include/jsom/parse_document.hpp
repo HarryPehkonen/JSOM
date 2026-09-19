@@ -10,11 +10,8 @@ namespace jsom {
 /// Parses JSON text into a document with the default options.
 ///
 /// There is exactly one parser: FastParser, a direct-construction recursive-descent
-/// parser. A second, event-based implementation (StreamingParser, with builders that
-/// reassembled a document from its events) was deleted on 2026-09-16 — it produced the
-/// same model as this function while being slower, had no callers, no fuzz coverage, and
-/// answered "is this valid JSON?" differently from the parser below. One parser, one set
-/// of rules.
+/// parser. One parser, one set of rules — a lookup here and a lookup anywhere else in
+/// JSOM answer "is this valid JSON?" the same way.
 inline auto parse_document(const std::string& json) -> JsonDocument {
     FastParser parser;
     return parser.parse(json);

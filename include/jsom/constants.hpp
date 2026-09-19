@@ -52,34 +52,17 @@ constexpr int BENCHMARK_TIME_COLUMN_WIDTH = 10; // Time column width in benchmar
 constexpr int BENCHMARK_PRECISION = 1;          // Decimal places for benchmark timing
 
 // Command argument positions
-constexpr int COMMAND_ARG_INDEX = 1;        // argv[1] is the command
-constexpr int FIRST_OPTION_INDEX = 2;       // argv[2] is first option
-constexpr int MINIMUM_VALIDATE_ARGS = 3;    // Minimum args for validate command
-constexpr int MINIMUM_POINTER_ARGS = 3;     // Minimum args for pointer command
-constexpr int POINTER_SUBCOMMAND_INDEX = 2; // Index of pointer subcommand
-constexpr int POINTER_PATH_INDEX = 3;       // Index of pointer path argument
-constexpr int POINTER_VALUE_INDEX = 4;      // Index of pointer value argument (for set)
-constexpr int MINIMUM_ARGC = 2;             // Minimum argc for any valid command
-constexpr int MINIMUM_GET_ARGS = 4;         // Minimum args for pointer get
-constexpr int MINIMUM_SET_ARGS = 5;         // Minimum args for pointer set
+constexpr int FIRST_OPTION_INDEX = 2; // argv[2] is first option
 
 // Benchmark constants
 constexpr int BENCHMARK_ITERATIONS = 1000;   // Number of iterations for benchmarking
 constexpr double BENCHMARK_DIVISOR = 1000.0; // Divisor to get average time
 
 // Colon spacing limits
-constexpr int MIN_COLON_SPACING = 0;
-constexpr int MAX_COLON_SPACING = 2;
 
 // Examples for help text
-constexpr int EXAMPLE_MAX_DEPTH = 3;     // Example max-depth value
-constexpr int EXAMPLE_INDENT = 4;        // Example indent value
-constexpr int EXAMPLE_INLINE_ARRAYS = 5; // Example inline-arrays value
-constexpr int EXAMPLE_MAX_WIDTH = 80;    // Example max-width value
 
 // Error codes
-constexpr int ERROR_CODE_GENERAL = 1;
-constexpr int ERROR_CODE_PATH_NOT_FOUND = 2;
 } // namespace cli_constants
 
 // JSON Format Option Defaults
@@ -121,7 +104,6 @@ constexpr int STRING_BUFFER_INITIAL_SIZE = 64;   // Initial string buffer size
 constexpr int STRING_BUFFER_PARSE_SIZE = 1024;   // String buffer size for parsing
 constexpr int NUMBER_BUFFER_SIZE = 32;           // Number buffer size
 constexpr int NUMBER_BUFFER_PARSE_SIZE = 64;     // Number buffer size for parsing
-constexpr int ARRAY_INITIAL_CAPACITY = 16;       // Initial array capacity
 constexpr int JSON_DOCUMENT_INITIAL_SIZE = 1024; // Initial JsonDocument string size
 
 // Literal string views (string_view: no static-init allocation, no throw risk)

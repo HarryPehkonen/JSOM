@@ -16,7 +16,6 @@ namespace jsom {
 
 // Forward declarations for path functionality
 class NavigationEngine;
-struct NavigationResult;
 
 // Forward declaration for formatting
 struct JsonFormatOptions;

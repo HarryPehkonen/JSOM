@@ -66,7 +66,7 @@ cmake --build build --target validation
 ### Local CI (the gates, run by the hooks)
 
 `tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format build tests asan
-fuzz conform tidy pristine`); `.githooks/pre-commit` runs `build tests`, and
+fuzz tsan conform tidy pristine`); `.githooks/pre-commit` runs `build tests`, and
 `.githooks/pre-push` runs the full set and additionally requires a clean worktree. Enable
 once per clone with `git config core.hooksPath .githooks`. Per-machine settings live in
 `.ci.env` (gitignored; see `.ci.env.example`) — stage output goes to `.ci-logs/`.
@@ -105,14 +105,15 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 - Lazy number parsing via `LazyNumber` class preserves original format
 - Iteration: `begin()`/`end()` for arrays, `items()` for objects (structured bindings), `keys()`
 - Full comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`) with deep structural comparison
-- Built-in JSON Pointer navigation with multi-level caching
+- Built-in JSON Pointer navigation (RFC 6901), reading the document directly
 - Advanced formatting via `JsonFormatOptions`
 
-**JSON Pointer System** (`include/jsom/json_pointer.hpp`, `navigation_engine.hpp`, `path_cache.hpp`):
+**JSON Pointer System** (`include/jsom/json_pointer.hpp`, `navigation_engine.hpp`):
 - Full RFC 6901 compliance with escape sequence handling
-- `NavigationEngine`: Core path navigation with prefix optimization
-- `PathCache`: Multi-level LRU+prefix caching for performance
-- Batch operations and path introspection capabilities
+- `NavigationEngine::find()`: the one navigation implementation — const-correct, no cache,
+  no mutation, so a const document can be navigated from several threads at once (gated
+  by the `tsan` stage). The mutable overload holds the single documented `const_cast`.
+- `find_multiple()` for batches; path introspection (`list_paths`, `find_paths`, `count_paths`)
 
 **Parsing System** (`include/jsom/fast_parser.hpp`, `parse_document.hpp`):
 - `FastParser`: the only parser — direct-construction recursive-descent, with optional comment support and the RFC 8259 lexical rules always enforced
@@ -129,11 +130,15 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 
 **Lazy Evaluation**: Numbers stored as strings until accessed, preserving original format for round-trip fidelity
 
-**Caching Strategy**: Three-level path cache (exact paths, prefixes, recent prefixes) for optimal JSON Pointer performance
+**Pure Navigation**: Path lookups read the document directly — no cache between the caller
+and the data, so a lookup cannot go stale and const reads stay thread-safe. A three-level
+path cache was measured (17.97x slower on reading every path once) and deleted; see the
+"Path cache removed" section in `OPTIMIZATIONS.md` before adding any memoisation back.
 
 **Template-Heavy Headers**: Most functionality in headers for compile-time optimization, minimal .cpp files
 
-**Zero-Cost Abstractions**: JSON Pointer functionality only activated when used, path cache created lazily
+**Zero-Cost Abstractions**: JSON Pointer functionality is only paid for when used, and
+navigation allocates nothing on the way down
 
 ### File Organization
 
@@ -146,8 +151,8 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 ### Constants and Configuration
 
 Key constants defined in `include/jsom/constants.hpp`:
-- Cache sizes and eviction policies
-- Parser buffer sizes and allocation strategies  
+- Nesting and size limits, and the JSON Pointer/parse presets
+- Parser buffer sizes and allocation strategies
 - Character handling and Unicode processing settings
 - CLI formatting and benchmark parameters
 
@@ -176,11 +181,15 @@ CODING_STANDARDS.md):
    behavior change or bug fix.
 3. Sanitizer gate: `cmake -B build-asan -DJSOM_SANITIZE=ON && cmake --build
    build-asan -j$(nproc) && ./build-asan/jsom_tests` — clean under ASan+UBSan.
-4. Fuzzing: input-handling changes run the fuzz targets briefly
+4. Thread gate: `tools/ci.sh tsan` — const reads from several threads must stay
+   race-free (`-DJSOM_SANITIZE=thread`, ~6 s). Const access may not modify hidden
+   state: no `mutable` written from a const member, no `const_cast` on `this`
+   (CODING_STANDARDS rule 11).
+5. Fuzzing: input-handling changes run the fuzz targets briefly
    (`cmake --build build --target fuzz_quick`); a crash is a bug, not user
    error. Performance work is measured before it lands (interleaved A/B with
    `tools/perf_probe.cpp`; see `OPTIMIZATIONS.md`).
-5. Never introduce raw owning pointers, `new`/`delete`, or
+6. Never introduce raw owning pointers, `new`/`delete`, or
    `reinterpret_cast`/C-style casts.
-6. If a build under these gates fails because of a pre-existing warning, fix
+7. If a build under these gates fails because of a pre-existing warning, fix
    the warning (small, targeted change) rather than weakening the flags.

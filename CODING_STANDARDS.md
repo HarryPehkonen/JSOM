@@ -70,6 +70,8 @@ steps below are what the stages check, in order:
 - [ ] `tools/ci.sh tsan` — const reads from several threads are race-free
       (ThreadSanitizer; ~6 s). Any change touching `JsonDocument` access paths
       must keep this green.
+- [ ] `tools/ci.sh std` — the library still compiles and runs as C++17, C++20
+      and C++23 (~2 s). Required when touching headers on the public surface.
 - [ ] `make tidy` — no NEW clang-tidy findings vs the baseline
 - [ ] Fuzzing: input-handling changes run the fuzz targets briefly
       (`cmake --build build --target fuzz_quick`); a crash is a bug — fix it,

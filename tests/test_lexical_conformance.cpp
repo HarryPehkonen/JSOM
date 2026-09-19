@@ -122,13 +122,17 @@ TEST(LexicalConformanceTest, NothingIsDroppedFromAnAcceptedDocument) {
 TEST(LexicalConformanceTest, TheSuiteCorpusItselfAgrees) {
     // Same rules, but read from the vendored suite so the test cannot drift from the
     // corpus. Only the files JSOM used to accept are listed — the rest already passed.
-    const std::string dir = "third_party/json_test_suite/test_parsing/";
+    // The corpus lives in the SOURCE tree, so the path is baked in at configure time:
+    // a relative path made this test depend on the working directory, which passed from
+    // the project root and failed under `ctest` (which runs from the build directory).
+    const std::string dir
+        = std::string{JSOM_SOURCE_DIR} + "/third_party/json_test_suite/test_parsing/";
     for (const char* name :
          {"n_string_unescaped_ctrl_char.json", "n_string_unescaped_newline.json",
           "n_string_invalid_unicode_escape.json", "n_string_invalid_backslash_esc.json",
           "n_string_unicode_CapitalU.json", "n_structure_whitespace_formfeed.json"}) {
         std::ifstream in(dir + name, std::ios::binary);
-        ASSERT_TRUE(in) << "missing suite file " << name;
+        ASSERT_TRUE(in) << "missing suite file " << (dir + name);
         const std::string text{std::istreambuf_iterator<char>{in},
                                std::istreambuf_iterator<char>{}};
         EXPECT_THROW((void)parse_document(text), std::runtime_error)
