@@ -1,15 +1,13 @@
 #include "jsom/json_document.hpp"
 #include "jsom/json_pointer.hpp"
-#include "jsom/path_cache.hpp"
 #include "jsom/navigation_engine.hpp"
+#include "jsom/path_cache.hpp"
 #include <memory>
 
 namespace jsom {
 
 // Destructor implementation
-JsonDocument::~JsonDocument() {
-    delete path_cache_;
-}
+JsonDocument::~JsonDocument() { delete path_cache_; }
 
 // Copy assignment operator
 auto JsonDocument::operator=(const JsonDocument& other) -> JsonDocument& {
@@ -46,37 +44,38 @@ auto JsonDocument::get_path_cache() const -> PathCache& {
 auto JsonDocument::get_json_pointer() -> std::string {
     // This would require parent tracking during document construction
     // For now, we'll throw since this requires structural changes
-    throw std::runtime_error("get_json_pointer() requires parent tracking - not implemented in current architecture");
+    throw std::runtime_error(
+        "get_json_pointer() requires parent tracking - not implemented in current architecture");
 }
 
 auto JsonDocument::at(const std::string& json_pointer) const -> const JsonDocument& {
     auto& cache = this->get_path_cache();
-    auto result = NavigationEngine::navigate_with_cache(
-        const_cast<JsonDocument*>(this), json_pointer, cache);
-    
+    auto result = NavigationEngine::navigate_with_cache(const_cast<JsonDocument*>(this),
+                                                        json_pointer, cache);
+
     if (result.target == nullptr) {
         throw JsonPointerNotFoundException(json_pointer);
     }
-    
+
     return *result.target;
 }
 
 auto JsonDocument::at(const std::string& json_pointer) -> JsonDocument& {
     auto& cache = this->get_path_cache();
     auto result = NavigationEngine::navigate_with_cache(this, json_pointer, cache);
-    
+
     if (result.target == nullptr) {
         throw JsonPointerNotFoundException(json_pointer);
     }
-    
+
     return *result.target;
 }
 
 auto JsonDocument::find(const std::string& json_pointer) const -> const JsonDocument* {
     try {
         auto& cache = this->get_path_cache();
-        auto result = NavigationEngine::navigate_with_cache(
-            const_cast<JsonDocument*>(this), json_pointer, cache);
+        auto result = NavigationEngine::navigate_with_cache(const_cast<JsonDocument*>(this),
+                                                            json_pointer, cache);
         return result.target;
     } catch (const JsonPointerException&) {
         return nullptr;
@@ -108,33 +107,33 @@ void JsonDocument::set_at(const std::string& json_pointer, JsonDocument&& value)
         *this = std::move(value);
         return;
     }
-    
+
     // Parse the pointer
     auto segments = JsonPointer::parse(json_pointer);
     if (segments.empty()) {
         *this = std::move(value);
         return;
     }
-    
+
     // Navigate to parent and set the final segment
     std::string parent_path = JsonPointer::get_parent(json_pointer);
     std::string final_segment = JsonPointer::get_last_segment(json_pointer);
-    
+
     JsonDocument* parent = this;
     if (!parent_path.empty()) {
         parent = &at(parent_path);
     }
-    
+
     // Set the value based on parent type
     if (JsonPointer::is_append(final_segment)) {
         // Append sentinel "-" (RFC 6902): only valid on arrays.
         if (!parent->is_array()) {
             throw JsonPointerTypeException(json_pointer, "array",
-                                           parent->is_object() ? "object"
-                                           : parent->is_null() ? "null"
-                                           : parent->is_bool() ? "boolean"
+                                           parent->is_object()   ? "object"
+                                           : parent->is_null()   ? "null"
+                                           : parent->is_bool()   ? "boolean"
                                            : parent->is_number() ? "number"
-                                           : "string");
+                                                                 : "string");
         }
         parent->push_back(value);
     } else if (parent->is_object()) {
@@ -146,14 +145,17 @@ void JsonDocument::set_at(const std::string& json_pointer, JsonDocument&& value)
         size_t index = JsonPointer::to_array_index(final_segment);
         parent->set(index, value);
     } else {
-        throw JsonPointerTypeException(json_pointer, "object or array", 
-                                     parent->is_null() ? "null" : 
-                                     parent->is_bool() ? "boolean" :
-                                     parent->is_number() ? "number" : "string");
+        throw JsonPointerTypeException(json_pointer, "object or array",
+                                       parent->is_null()     ? "null"
+                                       : parent->is_bool()   ? "boolean"
+                                       : parent->is_number() ? "number"
+                                                             : "string");
     }
-    
+
     // Clear path cache since structure changed
-    if (path_cache_ != nullptr) { path_cache_->clear(); }
+    if (path_cache_ != nullptr) {
+        path_cache_->clear();
+    }
 }
 
 auto JsonDocument::remove_at(const std::string& json_pointer) -> bool {
@@ -161,22 +163,24 @@ auto JsonDocument::remove_at(const std::string& json_pointer) -> bool {
         // Cannot remove root
         return false;
     }
-    
+
     try {
         std::string parent_path = JsonPointer::get_parent(json_pointer);
         std::string final_segment = JsonPointer::get_last_segment(json_pointer);
-        
+
         JsonDocument* parent = this;
         if (!parent_path.empty()) {
             parent = &at(parent_path);
         }
-        
+
         if (parent->is_object()) {
             auto& obj = std::get<std::map<std::string, JsonDocument>>(parent->storage_);
             auto it = obj.find(final_segment);
             if (it != obj.end()) {
                 obj.erase(it);
-                if (path_cache_ != nullptr) { path_cache_->clear(); }
+                if (path_cache_ != nullptr) {
+                    path_cache_->clear();
+                }
                 return true;
             }
         } else if (parent->is_array()) {
@@ -189,11 +193,13 @@ auto JsonDocument::remove_at(const std::string& json_pointer) -> bool {
                 // erase needs an iterator difference_type; index < size() (checked
                 // above) so the explicit narrowing is safe and well-defined.
                 arr.erase(arr.begin() + static_cast<std::ptrdiff_t>(index));
-                if (path_cache_ != nullptr) { path_cache_->clear(); }
+                if (path_cache_ != nullptr) {
+                    path_cache_->clear();
+                }
                 return true;
             }
         }
-        
+
         return false;
     } catch (const JsonPointerException&) {
         return false;
@@ -208,34 +214,37 @@ auto JsonDocument::extract_at(const std::string& json_pointer) -> JsonDocument {
     return result;
 }
 
-auto JsonDocument::at_multiple(const std::vector<std::string>& paths) const -> std::vector<const JsonDocument*> {
+auto JsonDocument::at_multiple(const std::vector<std::string>& paths) const
+    -> std::vector<const JsonDocument*> {
     auto& cache = this->get_path_cache();
-    auto results = NavigationEngine::navigate_multiple(
-        const_cast<JsonDocument*>(this), paths, cache);
-    
+    auto results
+        = NavigationEngine::navigate_multiple(const_cast<JsonDocument*>(this), paths, cache);
+
     std::vector<const JsonDocument*> const_results;
     const_results.reserve(results.size());
-    
+
     for (auto* result : results) {
         const_results.push_back(result);
     }
-    
+
     return const_results;
 }
 
-auto JsonDocument::at_multiple(const std::vector<std::string>& paths) -> std::vector<JsonDocument*> {
+auto JsonDocument::at_multiple(const std::vector<std::string>& paths)
+    -> std::vector<JsonDocument*> {
     auto& cache = this->get_path_cache();
     return NavigationEngine::navigate_multiple(this, paths, cache);
 }
 
-auto JsonDocument::exists_multiple(const std::vector<std::string>& paths) const -> std::vector<bool> {
+auto JsonDocument::exists_multiple(const std::vector<std::string>& paths) const
+    -> std::vector<bool> {
     std::vector<bool> results;
     results.reserve(paths.size());
-    
+
     for (const auto& path : paths) {
         results.push_back(exists(path));
     }
-    
+
     return results;
 }
 
@@ -246,47 +255,45 @@ auto JsonDocument::list_paths(int max_depth) const -> std::vector<std::string> {
 auto JsonDocument::find_paths(const std::string& pattern) const -> std::vector<std::string> {
     auto all_paths = list_paths();
     std::vector<std::string> matching_paths;
-    
+
     // Simple pattern matching (could be enhanced with regex or glob patterns)
     for (const auto& path : all_paths) {
         if (path.find(pattern) != std::string::npos) {
             matching_paths.push_back(path);
         }
     }
-    
+
     return matching_paths;
 }
 
-auto JsonDocument::count_paths() const -> size_t {
-    return list_paths().size();
-}
+auto JsonDocument::count_paths() const -> size_t { return list_paths().size(); }
 
 void JsonDocument::precompute_paths(int max_depth) const {
     auto paths = NavigationEngine::enumerate_paths(*this, max_depth);
     auto& cache = this->get_path_cache();
-    
+
     // Pre-populate cache with all paths
     for (const auto& path : paths) {
+        // Best-effort warming: a path that cannot be navigated simply stays uncached.
+        // The empty catch below is the intent, hence the suppression on its own line —
+        // a NOLINT placed anywhere else does not apply to the reported diagnostic.
         try {
-            auto result = NavigationEngine::navigate_with_cache(
-                const_cast<JsonDocument*>(this), path, cache);
-        } catch (const JsonPointerException&) {  // NOLINT(bugprone-empty-catch): intentional — warming is best-effort, failed paths simply stay uncached
-            // Ignore navigation failures during precomputation — warming is
-            // best-effort; paths that fail to navigate simply won't be cached.
+            (void)NavigationEngine::navigate_with_cache(const_cast<JsonDocument*>(this), path,
+                                                        cache);
+        } catch (const JsonPointerException&) { // NOLINT(bugprone-empty-catch)
         }
     }
 }
 
 void JsonDocument::warm_path_cache(const std::vector<std::string>& likely_paths) const {
     auto& cache = this->get_path_cache();
-    
+
     for (const auto& path : likely_paths) {
+        // Best-effort warming: missing paths simply stay uncached (see precompute_paths).
         try {
-            auto result = NavigationEngine::navigate_with_cache(
-                const_cast<JsonDocument*>(this), path, cache);
-        } catch (const JsonPointerException&) {  // NOLINT(bugprone-empty-catch): intentional — warming is best-effort, failed paths simply stay uncached
-            // Ignore failures during cache warming — best-effort; missing paths
-            // simply stay uncached.
+            (void)NavigationEngine::navigate_with_cache(const_cast<JsonDocument*>(this), path,
+                                                        cache);
+        } catch (const JsonPointerException&) { // NOLINT(bugprone-empty-catch)
         }
     }
 }
@@ -310,15 +317,15 @@ void JsonDocument::invalidate_cache() {
 auto JsonDocument::get_path_cache_stats() const -> JsonDocument::PathCacheStats {
     auto& cache = this->get_path_cache();
     auto stats = cache.get_stats();
-    
+
     PathCacheStats result;
     result.exact_cache_size = stats.exact_cache_size;
     result.prefix_cache_size = stats.prefix_cache_size;
     result.total_entries = stats.total_entries;
     result.memory_usage_estimate = stats.memory_usage_estimate;
     result.avg_prefix_length = stats.avg_prefix_length;
-    
+
     return result;
 }
 
-}
+} // namespace jsom

@@ -18,9 +18,9 @@
 //    wins; realistic keys are 20-30 chars.
 // JSOM performance probe — scratch harness (NOT part of the repo).
 // Generates representative JSON inputs and times parse + serialize.
-#include <jsom/jsom.hpp>
 #include <chrono>
 #include <cstdio>
+#include <jsom/jsom.hpp>
 #include <string>
 
 using namespace jsom;
@@ -34,8 +34,10 @@ static double ms(Clock::time_point a, Clock::time_point b) {
 static std::string make_number_heavy(size_t n) {
     std::string s = "{\"numbers\":[";
     for (size_t i = 0; i < n; ++i) {
-        if (i) s += ',';
-        s += std::to_string(i * 137 % 997) + "." + std::to_string(i % 89) + "e" + std::to_string(i % 4);
+        if (i)
+            s += ',';
+        s += std::to_string(i * 137 % 997) + "." + std::to_string(i % 89) + "e"
+             + std::to_string(i % 4);
     }
     s += "]}";
     return s;
@@ -43,7 +45,8 @@ static std::string make_number_heavy(size_t n) {
 static std::string make_string_heavy(size_t n) {
     std::string s = "{\"items\":[";
     for (size_t i = 0; i < n; ++i) {
-        if (i) s += ',';
+        if (i)
+            s += ',';
         s += "\"value with spaces and punct!@#$%^&*()_" + std::to_string(i) + "\"";
     }
     s += "]}";
@@ -52,7 +55,8 @@ static std::string make_string_heavy(size_t n) {
 static std::string make_object_heavy(size_t n) {
     std::string s = "{";
     for (size_t i = 0; i < n; ++i) {
-        if (i) s += ',';
+        if (i)
+            s += ',';
         s += "\"field_" + std::to_string(i) + "\":" + std::to_string(i * 7 % 1000);
     }
     s += "}";
@@ -60,9 +64,11 @@ static std::string make_object_heavy(size_t n) {
 }
 static std::string make_deep(size_t depth) {
     std::string s;
-    for (size_t i = 0; i < depth; ++i) s += '[';
+    for (size_t i = 0; i < depth; ++i)
+        s += '[';
     s += "42";
-    for (size_t i = 0; i < depth; ++i) s += ']';
+    for (size_t i = 0; i < depth; ++i)
+        s += ']';
     return s;
 }
 
@@ -70,21 +76,23 @@ static std::string make_longkey_object(size_t n) {
     // Realistic config-style keys: 20-30 chars, not SSO (>15 chars)
     std::string s = "{";
     for (size_t i = 0; i < n; ++i) {
-        if (i) s += ',';
-        s += "\"application_configuration_key_" + std::to_string(i) + "\":" + std::to_string(i * 7 % 1000);
+        if (i)
+            s += ',';
+        s += "\"application_configuration_key_" + std::to_string(i)
+             + "\":" + std::to_string(i * 7 % 1000);
     }
     s += "}";
     return s;
 }
 
-template <typename F>
-static void bench(const char* name, int iters, F&& f) {
+template <typename F> static void bench(const char* name, int iters, F&& f) {
     auto a = Clock::now();
-    f();  // warmup
+    f(); // warmup
     f();
     auto b = Clock::now();
     volatile size_t sink = 0;
-    for (int i = 0; i < iters; ++i) sink += f();
+    for (int i = 0; i < iters; ++i)
+        sink += f();
     auto c = Clock::now();
     double total = ms(b, c);
     printf("%-22s %6d iters  %8.2f ms  %10.2f us/op  (sink %zu)\n", name, iters, total,

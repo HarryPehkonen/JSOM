@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "jsom/fast_parser.hpp"
+#include <gtest/gtest.h>
 
 using namespace jsom;
 

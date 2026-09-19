@@ -27,10 +27,10 @@ namespace {
 /// (nst/JSONTestSuite: `n_number_*` plus `n_array_just_minus`).
 const std::vector<std::string>& malformed_numbers() {
     static const std::vector<std::string> cases = {
-        "[-]",    "[0.1.2]", "[-01]",  "[0.3e+]", "[0.3e]",  "[0E+]",   "[0E]",   "[0.e1]",
-        "[0e+]",  "[0e]",    "[1.0e+]", "[1.0e-]", "[1.0e]", "[1eE2]",  "[2.e+3]", "[2.e-3]",
-        "[2.e3]", "[-2.]",   "[9.e+]",  "[1+2]",   "[0e+-1]", "[-012]", "[-.123]", "[1.]",
-        "[012]",
+        "[-]",     "[0.1.2]", "[-01]",  "[0.3e+]", "[0.3e]",  "[0E+]",  "[0E]",
+        "[0.e1]",  "[0e+]",   "[0e]",   "[1.0e+]", "[1.0e-]", "[1.0e]", "[1eE2]",
+        "[2.e+3]", "[2.e-3]", "[2.e3]", "[-2.]",   "[9.e+]",  "[1+2]",  "[0e+-1]",
+        "[-012]",  "[-.123]", "[1.]",   "[012]",
     };
     return cases;
 }
@@ -38,9 +38,9 @@ const std::vector<std::string>& malformed_numbers() {
 /// Numbers the grammar does allow, including every shape the malformed list gets wrong.
 const std::vector<std::string>& valid_numbers() {
     static const std::vector<std::string> cases = {
-        "[0]",      "[-0]",     "[1]",      "[-1]",    "[12345]",  "[0.5]",     "[-0.5]",
-        "[1.0]",    "[1e0]",    "[1E0]",    "[1e+0]",  "[1e-0]",   "[1.5e10]",  "[-1.5E-10]",
-        "[0e0]",    "[0e+0]",   "[1e10]",   "[123.456e-789]",
+        "[0]",      "[-0]",       "[1]",   "[-1]",   "[12345]", "[0.5]",
+        "[-0.5]",   "[1.0]",      "[1e0]", "[1E0]",  "[1e+0]",  "[1e-0]",
+        "[1.5e10]", "[-1.5E-10]", "[0e0]", "[0e+0]", "[1e10]",  "[123.456e-789]",
     };
     return cases;
 }
@@ -115,7 +115,8 @@ TEST(NumberValidationTest, StrictModeKeepsTheOriginalText) {
 TEST(NumberValidationTest, TheStrictPresetCarriesTheSwitch) {
     EXPECT_TRUE(ParsePresets::Validate.validate_numbers);
     EXPECT_EQ(ParsePresets::Validate.max_depth, limits::MAX_NESTING_DEPTH);
-    EXPECT_EQ(ParsePresets::Validate.convert_unicode_escapes, ParsePresets::Default.convert_unicode_escapes);
+    EXPECT_EQ(ParsePresets::Validate.convert_unicode_escapes,
+              ParsePresets::Default.convert_unicode_escapes);
     EXPECT_NO_THROW((void)parse_document("[1.5, 2e3]", ParsePresets::Validate));
     EXPECT_THROW((void)parse_document("[1.5, 2eE3]", ParsePresets::Validate), std::runtime_error);
 }

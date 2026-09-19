@@ -62,13 +62,13 @@ int parse_in_child(const std::string& text, bool unicode_escapes) {
     try {
         auto doc = jsom::parse_document(text, options);
         (void)doc;
-        return 0;  // accepted
+        return 0; // accepted
     } catch (const std::invalid_argument&) {
-        return 1;  // rejected, expected error type
+        return 1; // rejected, expected error type
     } catch (const std::exception&) {
-        return 2;  // rejected, DIFFERENT error type
+        return 2; // rejected, DIFFERENT error type
     } catch (...) {
-        return 3;  // rejected, non-std exception
+        return 3; // rejected, non-std exception
     }
 }
 
@@ -76,32 +76,48 @@ Outcome attempt(const std::string& text, bool unicode_escapes) {
 #if JSOM_CONF_FORK
     const pid_t pid = ::fork();
     if (pid == 0) {
-        ::_exit(parse_in_child(text, unicode_escapes));  // no destructors, no flush
+        ::_exit(parse_in_child(text, unicode_escapes)); // no destructors, no flush
     }
-    if (pid < 0) { return Outcome::crashed; }
+    if (pid < 0) {
+        return Outcome::crashed;
+    }
     int status = 0;
-    if (::waitpid(pid, &status, 0) < 0) { return Outcome::crashed; }
-    if (!WIFEXITED(status)) { return Outcome::crashed; }
+    if (::waitpid(pid, &status, 0) < 0) {
+        return Outcome::crashed;
+    }
+    if (!WIFEXITED(status)) {
+        return Outcome::crashed;
+    }
     switch (WEXITSTATUS(status)) {
-        case 0: return Outcome::accepted;
-        case 1: return Outcome::rejected_invalid_argument;
-        default: return Outcome::rejected_other;
+    case 0:
+        return Outcome::accepted;
+    case 1:
+        return Outcome::rejected_invalid_argument;
+    default:
+        return Outcome::rejected_other;
     }
 #else
     switch (parse_in_child(text, unicode_escapes)) {
-        case 0: return Outcome::accepted;
-        case 1: return Outcome::rejected_invalid_argument;
-        default: return Outcome::rejected_other;
+    case 0:
+        return Outcome::accepted;
+    case 1:
+        return Outcome::rejected_invalid_argument;
+    default:
+        return Outcome::rejected_other;
     }
 #endif
 }
 
 const char* outcome_name(Outcome o) {
     switch (o) {
-        case Outcome::accepted: return "accepted (suite requires rejection)";
-        case Outcome::rejected_invalid_argument: return "rejected(invalid_argument)";
-        case Outcome::crashed: return "CRASHED (killed by a signal)";
-        default: return "rejected(OTHER EXCEPTION TYPE)";
+    case Outcome::accepted:
+        return "accepted (suite requires rejection)";
+    case Outcome::rejected_invalid_argument:
+        return "rejected(invalid_argument)";
+    case Outcome::crashed:
+        return "CRASHED (killed by a signal)";
+    default:
+        return "rejected(OTHER EXCEPTION TYPE)";
     }
 }
 
@@ -111,7 +127,7 @@ struct Failure {
     std::string detail;
 };
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
     fs::path suite{"third_party/json_test_suite"};
@@ -120,11 +136,18 @@ int main(int argc, char** argv) {
     bool verbose = false;
     for (int i = 1; i < argc; ++i) {
         const std::string a{argv[i]};
-        if (a == "--list") { list = true; }
-        else if (a == "--quiet") { quiet = true; }
-        else if (a == "--verbose") { verbose = true; std::cout << std::unitbuf; }
-        else if (a == "--validation=numbers") { g_validate_numbers = true; }
-        else { suite = a; }
+        if (a == "--list") {
+            list = true;
+        } else if (a == "--quiet") {
+            quiet = true;
+        } else if (a == "--verbose") {
+            verbose = true;
+            std::cout << std::unitbuf;
+        } else if (a == "--validation=numbers") {
+            g_validate_numbers = true;
+        } else {
+            suite = a;
+        }
     }
 
     const fs::path parsing = suite / "test_parsing";
@@ -135,7 +158,9 @@ int main(int argc, char** argv) {
 
     std::vector<fs::path> files;
     for (const auto& e : fs::directory_iterator(parsing)) {
-        if (e.is_regular_file()) { files.push_back(e.path()); }
+        if (e.is_regular_file()) {
+            files.push_back(e.path());
+        }
     }
     std::sort(files.begin(), files.end());
 
@@ -151,31 +176,49 @@ int main(int argc, char** argv) {
         const std::string name = f.filename().string();
         const char cls = name.empty() ? '?' : name[0];
         const std::string text = slurp(f);
-        if (text.empty() && fs::file_size(f) != 0) { continue; }
-        if (verbose) { std::cout << "trying " << name << "\n"; }
+        if (text.empty() && fs::file_size(f) != 0) {
+            continue;
+        }
+        if (verbose) {
+            std::cout << "trying " << name << "\n";
+        }
 
         const Outcome dflt = attempt(text, false);
         const Outcome uni = attempt(text, true);
-        if (dflt != uni) { ++mode_diff; }
-        if (dflt == Outcome::rejected_other) { ++other_exc; }
+        if (dflt != uni) {
+            ++mode_diff;
+        }
+        if (dflt == Outcome::rejected_other) {
+            ++other_exc;
+        }
 
         const bool accepted = dflt == Outcome::accepted;
-        const bool rejected = (dflt == Outcome::rejected_invalid_argument) ||
-                              (dflt == Outcome::rejected_other);
-        if (dflt == Outcome::crashed) { ++crashes; }
+        const bool rejected
+            = (dflt == Outcome::rejected_invalid_argument) || (dflt == Outcome::rejected_other);
+        if (dflt == Outcome::crashed) {
+            ++crashes;
+        }
         if (cls == 'y') {
             ++y_total;
-            if (accepted) { ++y_ok; }
-            else { failures.push_back({name, cls, outcome_name(dflt)}); }
+            if (accepted) {
+                ++y_ok;
+            } else {
+                failures.push_back({name, cls, outcome_name(dflt)});
+            }
         } else if (cls == 'n') {
             ++n_total;
             // A crash is NOT a rejection. Dying is never conformance, even on an
             // n_ file — that is exactly the bug this suite is meant to expose.
-            if (rejected) { ++n_ok; }
-            else { failures.push_back({name, cls, outcome_name(dflt)}); }
+            if (rejected) {
+                ++n_ok;
+            } else {
+                failures.push_back({name, cls, outcome_name(dflt)});
+            }
         } else if (cls == 'i') {
             ++i_total;
-            if (accepted) { ++i_accepted; }
+            if (accepted) {
+                ++i_accepted;
+            }
             if (dflt == Outcome::crashed) {
                 failures.push_back({name, cls, "CRASHED - a crash is never a free choice"});
             }
@@ -184,20 +227,21 @@ int main(int argc, char** argv) {
 
     if (!quiet) {
         std::cout << "=== RFC 8259 conformance: " << suite.string() << " ===\n";
-        std::cout << "  numbers: " << (g_validate_numbers ? "numbers validated (--validation=numbers)" : "lazy (default)")
+        std::cout << "  numbers: "
+                  << (g_validate_numbers ? "numbers validated (--validation=numbers)"
+                                         : "lazy (default)")
                   << "\n";
         std::cout << "  y_ must accept: " << y_ok << "/" << y_total
                   << (y_ok == y_total ? "  OK" : "  <-- FAILURES") << "\n";
         std::cout << "  n_ must reject: " << n_ok << "/" << n_total
                   << (n_ok == n_total ? "  OK" : "  <-- FAILURES") << "\n";
-        std::cout << "  i_ no opinion : " << i_accepted << " accepted, "
-                  << (i_total - i_accepted) << " rejected, of " << i_total
-                  << " (the suite explicitly abstains)\n";
+        std::cout << "  i_ no opinion : " << i_accepted << " accepted, " << (i_total - i_accepted)
+                  << " rejected, of " << i_total << " (the suite explicitly abstains)\n";
         std::cout << "  other exception types on parse failure: " << other_exc << "\n";
         std::cout << "  CRASHES (killed by a signal): " << crashes
                   << (crashes == 0 ? "" : "  <-- never acceptable") << "\n";
-        std::cout << "  files where convert_unicode_escapes changed accept/reject: "
-                  << mode_diff << "\n";
+        std::cout << "  files where convert_unicode_escapes changed accept/reject: " << mode_diff
+                  << "\n";
     }
 
     if (!failures.empty()) {
@@ -213,7 +257,8 @@ int main(int argc, char** argv) {
             const std::string name = f.filename().string();
             if (!name.empty() && name[0] == 'i') {
                 const Outcome d = attempt(slurp(f), false);
-                std::cout << "  " << (d == Outcome::accepted ? "accept" : "reject") << "  " << name << "\n";
+                std::cout << "  " << (d == Outcome::accepted ? "accept" : "reject") << "  " << name
+                          << "\n";
             }
         }
     }
@@ -222,9 +267,13 @@ int main(int argc, char** argv) {
     if (!quiet && fs::is_directory(transform)) {
         int acc = 0, tot = 0;
         for (const auto& e : fs::directory_iterator(transform)) {
-            if (!e.is_regular_file()) { continue; }
+            if (!e.is_regular_file()) {
+                continue;
+            }
             ++tot;
-            if (attempt(slurp(e.path()), false) == Outcome::accepted) { ++acc; }
+            if (attempt(slurp(e.path()), false) == Outcome::accepted) {
+                ++acc;
+            }
         }
         std::cout << "\n  informational: " << acc << "/" << tot
                   << " of test_transform/ accepted (suite states parsers may differ)\n";

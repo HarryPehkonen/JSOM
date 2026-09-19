@@ -276,10 +276,14 @@ endif()
 # Code Quality Tools
 # ================================
 
-# Find source files for formatting and linting
+# Find source files for formatting and linting.
+# Keep this list in step with the format gate in tools/ci.sh (ci_sources): the gate
+# checks exactly what `make format` would rewrite.
 file(GLOB_RECURSE JSOM_SOURCES 
     ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/*.cpp
 )
 

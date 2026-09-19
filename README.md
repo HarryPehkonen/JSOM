@@ -109,6 +109,45 @@ cmake --build build --target run_tests
 cmake --build build --target run_benchmarks
 ```
 
+## Local CI (git hooks)
+
+Every gate in `CODING_STANDARDS.md` runs locally, from one script — no GitHub, no
+network, no framework. `tools/ci.sh` is non-destructive: it never commits, stages,
+reverts or reformats anything.
+
+```bash
+git config core.hooksPath .githooks    # once per clone — enables the hooks
+tools/ci.sh                            # all stages, by hand, any time
+tools/ci.sh build tests                # named stages only, in the order given
+tools/ci.sh --list                     # what the stages are
+```
+
+| hook | runs | cost |
+|---|---|---|
+| `pre-commit` | `build tests` | ~15 s |
+| `pre-push` | `tree format build tests asan fuzz conform tidy pristine` | ~2–4 min |
+
+A failing stage stops the run, blocks the commit or push, and prints its reason plus the
+tail of its log; full output lands in `.ci-logs/<stage>.log`. The bypass is git's own:
+`git commit --no-verify`, `git push --no-verify`.
+
+**Pristine** is the stage worth knowing about: it does `git archive HEAD` into a temp
+directory and then configures, builds and tests *that*. It proves the committed tree is
+complete on its own — the only way to catch a file that is needed to build but was never
+committed, or one that `.gitignore` swallows by mistake.
+
+**Conform** asserts the strict verdict (`--validation=numbers`: `y_` 95/95, `n_` 188/188)
+and reports the default-mode count; the number grammar is opt-in, so the default 162/188
+is reported, not failed.
+
+**Tidy** runs clang-tidy over `src/` and `include/` and requires **zero** findings. An
+optional baseline (`.ci/tidy-baseline.txt`, see `.ci.env.example`) can tolerate known
+findings while still failing on new ones — the repo currently needs none.
+
+Machine-specific settings — job count, fuzz seconds, stage list, whether a missing tool
+fails the run — live in `.ci.env`, which is gitignored. Copy `.ci.env.example` and edit;
+every knob has a default in `tools/ci.sh`, so an unconfigured clone still works.
+
 ## Installing
 ```bash
 sudo cmake --build build --target install

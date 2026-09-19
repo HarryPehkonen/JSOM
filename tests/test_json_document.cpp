@@ -68,9 +68,7 @@ TEST(JsonDocumentTest, OptionalAccess) {
 }
 
 TEST(JsonDocumentTest, Serialization) {
-    JsonDocument doc{{"name", "John"},
-                     {"age", TEST_PERSON_AGE},
-                     {"active", true}};
+    JsonDocument doc{{"name", "John"}, {"age", TEST_PERSON_AGE}, {"active", true}};
 
     std::string json = doc.to_json();
     EXPECT_TRUE(json.find("\"name\":\"John\"") != std::string::npos);

@@ -141,7 +141,8 @@ auto survives_on_small_stack(const std::function<void()>& body) -> bool {
     const int created = pthread_create(&thread, &attr, run_on_thread_stack, &task);
     pthread_attr_destroy(&attr);
     if (created != 0) {
-        ADD_FAILURE() << "could not create the test thread (pthread_create error " << created << ")";
+        ADD_FAILURE() << "could not create the test thread (pthread_create error " << created
+                      << ")";
         return false;
     }
     pthread_join(thread, nullptr);

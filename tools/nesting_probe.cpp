@@ -18,9 +18,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <jsom/jsom.hpp>
 #include <string>
 #include <utility>
-#include <jsom/jsom.hpp>
 
 using namespace jsom;
 using Clock = std::chrono::steady_clock;
@@ -43,8 +43,7 @@ auto nest_programmatically(int depth) -> JsonDocument {
     return doc;
 }
 
-template <typename F>
-auto best_of(int rounds, int iters, F&& body) -> double {
+template <typename F> auto best_of(int rounds, int iters, F&& body) -> double {
     double best = 1e18;
     for (int round = 0; round < rounds; ++round) {
         const auto start = Clock::now();
@@ -52,8 +51,8 @@ auto best_of(int rounds, int iters, F&& body) -> double {
             body();
         }
         const auto stop = Clock::now();
-        const double per_iter =
-            std::chrono::duration<double, std::nano>(stop - start).count() / iters;
+        const double per_iter
+            = std::chrono::duration<double, std::nano>(stop - start).count() / iters;
         best = std::min(best, per_iter);
     }
     return best;
@@ -70,12 +69,18 @@ int main() {
     const auto deep_doc = nest_programmatically(kDepth);
     const auto twin = nest_programmatically(kDepth);
 
-    const double parse_ns =
-        best_of(kRounds, kIters, [&] { auto d = parse_document(json); (void)d; });
-    const double compare_ns =
-        best_of(kRounds, kIters, [&] { const bool eq = (deep_doc == twin); (void)eq; });
-    const double serialize_ns =
-        best_of(kRounds, kIters, [&] { auto s = deep_doc.to_json(); (void)s; });
+    const double parse_ns = best_of(kRounds, kIters, [&] {
+        auto d = parse_document(json);
+        (void)d;
+    });
+    const double compare_ns = best_of(kRounds, kIters, [&] {
+        const bool eq = (deep_doc == twin);
+        (void)eq;
+    });
+    const double serialize_ns = best_of(kRounds, kIters, [&] {
+        auto s = deep_doc.to_json();
+        (void)s;
+    });
 
     std::printf("depth-%d document, best of %d x %d iterations\n\n", kDepth, kRounds, kIters);
     std::printf("  parse      %9.3f us/document  (%7.2f ns per level)\n", parse_ns / 1000.0,

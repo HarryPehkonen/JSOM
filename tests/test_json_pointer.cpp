@@ -165,8 +165,7 @@ TEST_F(JsonPointerTest, AppendSentinel) {
     EXPECT_EQ(doc.at("/users").size(), std::size_t(4));
 
     // "-" on a fresh array appends at the correct position.
-    doc.set_at("/new_list", JsonDocument::from_vector(
-                                std::vector<JsonDocument>{JsonDocument(1)}));
+    doc.set_at("/new_list", JsonDocument::from_vector(std::vector<JsonDocument>{JsonDocument(1)}));
     doc.set_at("/new_list/-", JsonDocument(2));
     EXPECT_EQ(doc.at("/new_list/1").as<int>(), 2);
     EXPECT_EQ(doc.at("/new_list").size(), std::size_t(2));
@@ -174,8 +173,7 @@ TEST_F(JsonPointerTest, AppendSentinel) {
 
 TEST_F(JsonPointerTest, AppendSentinelTypeError) {
     // "-" on a non-array parent must throw, not create a literal "-" key.
-    EXPECT_THROW(doc.set_at("/config/-", JsonDocument("nope")),
-                 JsonPointerTypeException);
+    EXPECT_THROW(doc.set_at("/config/-", JsonDocument("nope")), JsonPointerTypeException);
     // Ensure no stray "-" key was created in the object.
     EXPECT_FALSE(doc.exists("/config/-"));
 }

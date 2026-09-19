@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# pre-push: the full gate, on the tree you are about to publish.
+#
+# Requires a clean worktree (nothing uncommitted), then proves the COMMITTED tree is
+# complete by building and testing it from a pristine checkout of HEAD.
+# Deliberate bypass: git push --no-verify
+#
+exec "$(git rev-parse --show-toplevel)/tools/ci.sh" \
+    --require-clean \
+    tree format build tests asan fuzz conform tidy pristine

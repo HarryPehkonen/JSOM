@@ -53,6 +53,10 @@ Reference: https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines
 
 ## Definition of done (agent checklist)
 
+`tools/ci.sh` runs all of this, and `.githooks/{pre-commit,pre-push}` runs it at commit
+and push time — enable once per clone with `git config core.hooksPath .githooks`. The
+steps below are what the stages check, in order:
+
 - [ ] `cmake --build build` — zero warnings (`-Werror`)
 - [ ] `./build/jsom_tests` — all tests pass
 - [ ] `./build-asan/jsom_tests` — clean under ASan+UBSan

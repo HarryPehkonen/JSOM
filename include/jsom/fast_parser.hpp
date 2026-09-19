@@ -91,8 +91,7 @@ private:
                 } else if (data_[pos_ + 1] == '*') {
                     // Block comment: skip to */
                     pos_ += 2;
-                    while (pos_ + 1 < size_
-                           && !(data_[pos_] == '*' && data_[pos_ + 1] == '/')) {
+                    while (pos_ + 1 < size_ && !(data_[pos_] == '*' && data_[pos_ + 1] == '/')) {
                         ++pos_;
                     }
                     if (pos_ + 1 < size_) {
@@ -299,7 +298,9 @@ private:
     // NOLINTEND(readability-function-size)
 
     [[nodiscard]] static constexpr auto is_digit(char c) -> bool { return c >= '0' && c <= '9'; }
-    [[nodiscard]] static constexpr auto is_digit_1_to_9(char c) -> bool { return c >= '1' && c <= '9'; }
+    [[nodiscard]] static constexpr auto is_digit_1_to_9(char c) -> bool {
+        return c >= '1' && c <= '9';
+    }
 
     /// RFC 8259 §6 number grammar, applied to the text the scan already collected.
     /// Only used when JsonParseOptions::validate_numbers is set, because numbers are
@@ -459,7 +460,7 @@ private:
                 throw std::runtime_error("Expected string key in object");
             }
             auto key_doc = parse_string();
-            auto key = key_doc.take_string();  // move out — no copy (OPTIMIZATIONS.md #3)
+            auto key = key_doc.take_string(); // move out — no copy (OPTIMIZATIONS.md #3)
 
             skip_whitespace();
             expect(':');
@@ -581,7 +582,6 @@ public:
         }
 
         auto result = parse_value();
-
 
         skip_whitespace();
         if (pos_ < size_) {

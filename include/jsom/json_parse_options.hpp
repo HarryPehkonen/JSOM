@@ -77,31 +77,31 @@ public:
  * Implementation of parsing presets.
  */
 inline const JsonParseOptions ParsePresets::Default = {
-    false, // convert_unicode_escapes
-    false, // allow_comments
+    false,                     // convert_unicode_escapes
+    false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false  // validate_numbers
+    false                      // validate_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
-    true, // convert_unicode_escapes
-    false, // allow_comments
+    true,                      // convert_unicode_escapes
+    false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false  // validate_numbers
+    false                      // validate_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Comments = {
-    false, // convert_unicode_escapes
-    true,  // allow_comments
+    false,                     // convert_unicode_escapes
+    true,                      // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false  // validate_numbers
+    false                      // validate_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Validate = {
-    false, // convert_unicode_escapes
-    false, // allow_comments
+    false,                     // convert_unicode_escapes
+    false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    true   // validate_numbers
+    true                       // validate_numbers
 };
 
 } // namespace jsom

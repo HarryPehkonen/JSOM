@@ -76,8 +76,7 @@ std::vector<Case> must_still_parse() {
         {"raw UTF-8 in a string", "[\"\xe6\x97\xa5\xe6\x9c\xac\"]"},
         {"tab and newline as whitespace", "[\t1,\n2,\r3\t]"},
         {"spaces around everything", "  {  \"a\"  :  [  1  ]  }  "},
-        {"a backslash that came from an escaped backslash",
-         R"(["\\u0041"])"},
+        {"a backslash that came from an escaped backslash", R"(["\\u0041"])"},
     };
 }
 
@@ -124,12 +123,10 @@ TEST(LexicalConformanceTest, TheSuiteCorpusItselfAgrees) {
     // Same rules, but read from the vendored suite so the test cannot drift from the
     // corpus. Only the files JSOM used to accept are listed — the rest already passed.
     const std::string dir = "third_party/json_test_suite/test_parsing/";
-    for (const char* name : {"n_string_unescaped_ctrl_char.json",
-                             "n_string_unescaped_newline.json",
-                             "n_string_invalid_unicode_escape.json",
-                             "n_string_invalid_backslash_esc.json",
-                             "n_string_unicode_CapitalU.json",
-                             "n_structure_whitespace_formfeed.json"}) {
+    for (const char* name :
+         {"n_string_unescaped_ctrl_char.json", "n_string_unescaped_newline.json",
+          "n_string_invalid_unicode_escape.json", "n_string_invalid_backslash_esc.json",
+          "n_string_unicode_CapitalU.json", "n_structure_whitespace_formfeed.json"}) {
         std::ifstream in(dir + name, std::ios::binary);
         ASSERT_TRUE(in) << "missing suite file " << name;
         const std::string text{std::istreambuf_iterator<char>{in},

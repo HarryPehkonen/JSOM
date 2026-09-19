@@ -1,14 +1,14 @@
+#include "jsom/constants.hpp"
 #include "jsom/jsom.hpp"
 #include "jsom/json_pointer.hpp"
-#include "jsom/constants.hpp"
 #include "jsom/version.hpp"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <string>
 #include <chrono>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
 
 using namespace jsom;
 
@@ -58,61 +58,82 @@ auto split(const std::string& str, char delimiter) -> std::vector<std::string> {
 void dump_preset_settings(const jsom::JsonFormatOptions& options, const std::string& preset_name) {
     std::cout << "Preset '" << preset_name << "' configuration:\n";
     std::cout << std::string(60, '=') << "\n\n";
-    
+
     // Format each setting with CLI switch as label
     std::cout << "Basic Settings:\n";
-    std::cout << "  --indent:                " << (options.indent_size.has_value() ? 
-                                                     std::to_string(*options.indent_size) + " spaces" : 
-                                                     "compact mode") << "\n";
-    
+    std::cout << "  --indent:                "
+              << (options.indent_size.has_value() ? std::to_string(*options.indent_size) + " spaces"
+                                                  : "compact mode")
+              << "\n";
+
     std::cout << "\nInlining Controls:\n";
     std::cout << "  --inline-arrays:         " << options.max_inline_array_size << "\n";
     std::cout << "  --inline-objects:        " << options.max_inline_object_size << "\n";
-    
+
     std::cout << "\nLayout Controls:\n";
-    std::cout << "  --max-width:             " << (options.max_line_width == 0 ? "unlimited" : std::to_string(options.max_line_width)) << "\n";
-    std::cout << "  --align-values:          " << (options.align_values ? "enabled" : "disabled") << "\n";
-    std::cout << "  --intelligent-wrap:      " << (options.intelligent_wrapping ? "enabled" : "disabled") << "\n";
-    
+    std::cout << "  --max-width:             "
+              << (options.max_line_width == 0 ? "unlimited"
+                                              : std::to_string(options.max_line_width))
+              << "\n";
+    std::cout << "  --align-values:          " << (options.align_values ? "enabled" : "disabled")
+              << "\n";
+    std::cout << "  --intelligent-wrap:      "
+              << (options.intelligent_wrapping ? "enabled" : "disabled") << "\n";
+
     std::cout << "\nSpacing Controls:\n";
     std::cout << "  --colon-spacing:         " << options.colon_spacing << " spaces\n";
-    std::cout << "  --bracket-spacing:       " << (options.bracket_spacing ? "enabled" : "disabled") << "\n";
-    
+    std::cout << "  --bracket-spacing:       " << (options.bracket_spacing ? "enabled" : "disabled")
+              << "\n";
+
     std::cout << "\nAdvanced Options:\n";
-    std::cout << "  --sort-keys:             " << (options.sort_keys ? "enabled" : "disabled") << "\n";
-    std::cout << "  --escape-unicode:        " << (options.escape_unicode ? "enabled" : "disabled") << "\n";
-    std::cout << "  --trailing-comma:        " << (options.trailing_comma ? "enabled" : "disabled") << "\n";
-    
+    std::cout << "  --sort-keys:             " << (options.sort_keys ? "enabled" : "disabled")
+              << "\n";
+    std::cout << "  --escape-unicode:        " << (options.escape_unicode ? "enabled" : "disabled")
+              << "\n";
+    std::cout << "  --trailing-comma:        " << (options.trailing_comma ? "enabled" : "disabled")
+              << "\n";
+
     // Build equivalent command line
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << "Equivalent command:\n";
     std::cout << "jsom format";
-    
+
     // Only show non-default options
     JsonFormatOptions defaults;
-    if (options.indent_size.has_value()) { std::cout << " --indent=" << *options.indent_size;
-}
-    if (options.max_inline_array_size != defaults.max_inline_array_size) { std::cout << " --inline-arrays=" << options.max_inline_array_size;
-}
-    if (options.max_inline_object_size != defaults.max_inline_object_size) { std::cout << " --inline-objects=" << options.max_inline_object_size;
-}
-    if (options.max_line_width != defaults.max_line_width) { std::cout << " --max-width=" << options.max_line_width;
-}
-    if (options.align_values) { std::cout << " --align-values";
-}
-    if (options.colon_spacing != defaults.colon_spacing) { std::cout << " --colon-spacing=" << options.colon_spacing;
-}
-    if (options.bracket_spacing) { std::cout << " --bracket-spacing";
-}
-    if (options.sort_keys) { std::cout << " --sort-keys";
-}
-    if (options.escape_unicode) { std::cout << " --escape-unicode";
-}
-    if (options.trailing_comma) { std::cout << " --trailing-comma";
-}
-    if (options.intelligent_wrapping) { std::cout << " --intelligent-wrap";
-}
-    
+    if (options.indent_size.has_value()) {
+        std::cout << " --indent=" << *options.indent_size;
+    }
+    if (options.max_inline_array_size != defaults.max_inline_array_size) {
+        std::cout << " --inline-arrays=" << options.max_inline_array_size;
+    }
+    if (options.max_inline_object_size != defaults.max_inline_object_size) {
+        std::cout << " --inline-objects=" << options.max_inline_object_size;
+    }
+    if (options.max_line_width != defaults.max_line_width) {
+        std::cout << " --max-width=" << options.max_line_width;
+    }
+    if (options.align_values) {
+        std::cout << " --align-values";
+    }
+    if (options.colon_spacing != defaults.colon_spacing) {
+        std::cout << " --colon-spacing=" << options.colon_spacing;
+    }
+    if (options.bracket_spacing) {
+        std::cout << " --bracket-spacing";
+    }
+    if (options.sort_keys) {
+        std::cout << " --sort-keys";
+    }
+    if (options.escape_unicode) {
+        std::cout << " --escape-unicode";
+    }
+    if (options.trailing_comma) {
+        std::cout << " --trailing-comma";
+    }
+    if (options.intelligent_wrapping) {
+        std::cout << " --intelligent-wrap";
+    }
+
     std::cout << " [FILE]\n\n";
 }
 
@@ -182,16 +203,16 @@ auto format_command(const std::vector<std::string>& args) -> int {
     const std::string INLINE_OBJECTS_SWITCH = "--inline-objects=";
     const std::string MAX_WIDTH_SWITCH = "--max-width=";
     const std::string COLON_SPACING_SWITCH = "--colon-spacing=";
-    jsom::JsonFormatOptions options = jsom::FormatPresets::Pretty;  // Default to pretty
+    jsom::JsonFormatOptions options = jsom::FormatPresets::Pretty; // Default to pretty
     jsom::JsonParseOptions parse_options;
     std::string input_file;
     bool dump_settings = false;
     std::string preset_name = "pretty";
-    
+
     // Parse arguments
     for (size_t i = 2; i < args.size(); ++i) {
         const auto& arg = args[i];
-        
+
         if (arg == "--help") {
             std::cout << R"(Format JSON files with intelligent pretty printing
 
@@ -239,9 +260,10 @@ EXAMPLES:
     jsom format --dump                          # Show current/default settings
 )";
             return 0;
-        } if (arg.substr(0, PRESET_SWITCH.length()) == PRESET_SWITCH) {
+        }
+        if (arg.substr(0, PRESET_SWITCH.length()) == PRESET_SWITCH) {
             std::string preset = arg.substr(PRESET_SWITCH.length());
-            preset_name = preset;  // Track preset name for dumping
+            preset_name = preset; // Track preset name for dumping
             if (preset == "compact") {
                 options = jsom::FormatPresets::Compact;
             } else if (preset == "pretty") {
@@ -306,13 +328,13 @@ EXAMPLES:
             return 1;
         }
     }
-    
+
     // If dump was requested, show settings and exit
     if (dump_settings) {
         dump_preset_settings(options, preset_name);
         return 0;
     }
-    
+
     try {
         // Read JSON
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
@@ -405,10 +427,10 @@ auto pointer_get(const std::string& path, const std::string& input_file) -> int 
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         const auto& value = doc.at(path);
         std::cout << value.to_json() << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -421,10 +443,10 @@ auto pointer_exists(const std::string& path, const std::string& input_file) -> i
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         bool exists = doc.exists(path);
         std::cout << (exists ? "true" : "false") << '\n';
-        
+
         return exists ? 0 : 1;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -436,7 +458,7 @@ auto pointer_exists(const std::string& path, const std::string& input_file) -> i
 auto pointer_list(const std::vector<std::string>& args, const std::string& input_file) -> int {
     int max_depth = -1;
     bool include_values = false;
-    
+
     // Parse options
     const std::string MAX_DEPTH_SWITCH = "--max-depth=";
     for (const auto& arg : args) {
@@ -446,13 +468,13 @@ auto pointer_list(const std::vector<std::string>& args, const std::string& input
             include_values = true;
         }
     }
-    
+
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         auto paths = doc.list_paths(max_depth);
-        
+
         for (const auto& path : paths) {
             if (include_values && !path.empty()) {
                 try {
@@ -465,7 +487,7 @@ auto pointer_list(const std::vector<std::string>& args, const std::string& input
                 std::cout << path << '\n';
             }
         }
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -478,13 +500,13 @@ auto pointer_find(const std::string& pattern, const std::string& input_file) -> 
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         auto paths = doc.find_paths(pattern);
-        
+
         for (const auto& path : paths) {
             std::cout << path << '\n';
         }
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -493,11 +515,12 @@ auto pointer_find(const std::string& pattern, const std::string& input_file) -> 
 }
 
 // Pointer set subcommand
-auto pointer_set(const std::string& path, const std::string& value_str, const std::string& input_file) -> int {
+auto pointer_set(const std::string& path, const std::string& value_str,
+                 const std::string& input_file) -> int {
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         // Try to parse value as JSON first
         JsonDocument value;
         try {
@@ -506,10 +529,10 @@ auto pointer_set(const std::string& path, const std::string& value_str, const st
             // If not valid JSON, treat as string
             value = JsonDocument(value_str);
         }
-        
+
         doc.set_at(path, value);
         std::cout << doc.to_json(true) << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -522,15 +545,15 @@ auto pointer_remove(const std::string& path, const std::string& input_file) -> i
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         bool removed = doc.remove_at(path);
         if (!removed) {
             std::cerr << "Path not found: " << path << '\n';
             return 1;
         }
-        
+
         std::cout << doc.to_json(true) << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -543,10 +566,10 @@ auto pointer_extract(const std::string& path, const std::string& input_file) -> 
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         auto extracted = doc.extract_at(path);
         std::cout << extracted.to_json(true) << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -559,10 +582,10 @@ auto pointer_bulk_get(const std::string& paths_str, const std::string& input_fil
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         auto paths = split(paths_str, ',');
         auto results = doc.at_multiple(paths);
-        
+
         std::cout << "{" << '\n';
         for (size_t i = 0; i < paths.size(); ++i) {
             std::cout << "  \"" << paths[i] << "\": ";
@@ -577,7 +600,7 @@ auto pointer_bulk_get(const std::string& paths_str, const std::string& input_fil
             std::cout << '\n';
         }
         std::cout << "}" << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -586,22 +609,23 @@ auto pointer_bulk_get(const std::string& paths_str, const std::string& input_fil
 }
 
 // Pointer benchmark subcommand
-auto pointer_benchmark(const std::string& paths_str, const std::string& input_file, bool warm_cache) -> int {
+auto pointer_benchmark(const std::string& paths_str, const std::string& input_file, bool warm_cache)
+    -> int {
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
         auto doc = parse_document(json);
-        
+
         auto paths = split(paths_str, ',');
-        
+
         // Warm cache if requested
         if (warm_cache) {
             doc.warm_path_cache(paths);
         }
-        
+
         // Benchmark each path
         std::cout << "Path Access Benchmarks:" << '\n';
         std::cout << std::string(cli_constants::SEPARATOR_LINE_WIDTH, '-') << '\n';
-        
+
         for (const auto& path : paths) {
             // Time benchmark iterations
             auto start = std::chrono::high_resolution_clock::now();
@@ -610,15 +634,17 @@ auto pointer_benchmark(const std::string& paths_str, const std::string& input_fi
                 (void)result; // Prevent optimization
             }
             auto end = std::chrono::high_resolution_clock::now();
-            
+
             auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            double avg_ns = static_cast<double>(duration.count()) / cli_constants::BENCHMARK_DIVISOR;
-            
-            std::cout << std::left << std::setw(cli_constants::BENCHMARK_PATH_COLUMN_WIDTH) << path 
-                     << std::right << std::setw(cli_constants::BENCHMARK_TIME_COLUMN_WIDTH) << std::fixed << std::setprecision(cli_constants::BENCHMARK_PRECISION) 
-                     << avg_ns << " ns/access" << '\n';
+            double avg_ns
+                = static_cast<double>(duration.count()) / cli_constants::BENCHMARK_DIVISOR;
+
+            std::cout << std::left << std::setw(cli_constants::BENCHMARK_PATH_COLUMN_WIDTH) << path
+                      << std::right << std::setw(cli_constants::BENCHMARK_TIME_COLUMN_WIDTH)
+                      << std::fixed << std::setprecision(cli_constants::BENCHMARK_PRECISION)
+                      << avg_ns << " ns/access" << '\n';
         }
-        
+
         // Show cache stats
         auto stats = doc.get_path_cache_stats();
         std::cout << std::string(cli_constants::SEPARATOR_LINE_WIDTH, '-') << '\n';
@@ -627,7 +653,7 @@ auto pointer_benchmark(const std::string& paths_str, const std::string& input_fi
         std::cout << "  Prefix cache size: " << stats.prefix_cache_size << '\n';
         std::cout << "  Total entries: " << stats.total_entries << '\n';
         std::cout << "  Memory usage: " << stats.memory_usage_estimate << " bytes" << '\n';
-        
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -642,28 +668,28 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
         show_pointer_usage();
         return 0;
     }
-    
+
     const std::string& subcommand = args[2];
-    
+
     // Extract options and file
     std::vector<std::string> options;
     std::string input_file;
     bool warm_cache = false;
-    
+
     // For most subcommands, we need to identify which arg is the file
     // The pattern is: jsom pointer <subcommand> <path/pattern> [options] [file]
-    // Special cases: 
+    // Special cases:
     // - "list" has no required path argument
     // - "set" has two required arguments before the file
     // - "bulk-get" and "benchmark" take comma-separated paths
-    
+
     size_t expected_args = 3; // Default: subcommand + path
     if (subcommand == "list") {
         expected_args = 2; // No path required
     } else if (subcommand == "set") {
         expected_args = 4; // path + value
     }
-    
+
     // Find the file argument (last non-option argument)
     for (size_t i = 3; i < args.size(); ++i) {
         const auto& arg = args[i];
@@ -673,12 +699,12 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
             options.push_back(arg);
         }
     }
-    
+
     // The file is the last argument if it's beyond the expected arguments and not an option
     if (args.size() > expected_args && args.back()[0] != '-') {
         input_file = args.back();
     }
-    
+
     // Dispatch to subcommand
     if (subcommand == "get") {
         if (args.size() < 4) {
@@ -686,59 +712,59 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
             return 1;
         }
         return pointer_get(args[3], input_file);
-        
-    } if (subcommand == "exists") {
+    }
+    if (subcommand == "exists") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer exists <path> [file]\n";
             return 1;
         }
         return pointer_exists(args[3], input_file);
-        
-    } if (subcommand == "list") {
+    }
+    if (subcommand == "list") {
         return pointer_list(options, input_file);
-        
+
     } else if (subcommand == "find") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer find <pattern> [file]\n";
             return 1;
         }
         return pointer_find(args[3], input_file);
-        
+
     } else if (subcommand == "set") {
         if (args.size() < 5) {
             std::cerr << "Usage: jsom pointer set <path> <value> [file]\n";
             return 1;
         }
         return pointer_set(args[3], args[4], input_file);
-        
+
     } else if (subcommand == "remove") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer remove <path> [file]\n";
             return 1;
         }
         return pointer_remove(args[3], input_file);
-        
+
     } else if (subcommand == "extract") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer extract <path> [file]\n";
             return 1;
         }
         return pointer_extract(args[3], input_file);
-        
+
     } else if (subcommand == "bulk-get") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer bulk-get <paths> [file]\n";
             return 1;
         }
         return pointer_bulk_get(args[3], input_file);
-        
+
     } else if (subcommand == "benchmark") {
         if (args.size() < 4) {
             std::cerr << "Usage: jsom pointer benchmark <paths> [file]\n";
             return 1;
         }
         return pointer_benchmark(args[3], input_file, warm_cache);
-        
+
     } else {
         std::cerr << "Unknown pointer subcommand: " << subcommand << '\n';
         show_pointer_usage();
@@ -749,40 +775,44 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
 // Benchmark command
 auto benchmark_command(const std::vector<std::string>& args) -> int {
     std::string input_file;
-    
+
     for (size_t i = cli_constants::FIRST_OPTION_INDEX; i < args.size(); ++i) {
         const auto& arg = args[i];
         if (arg == "--help") {
             std::cout << "Benchmark JSON operations\n\n";
             std::cout << "USAGE: jsom benchmark [FILE]\n";
             return 0;
-        } if (arg[0] != '-') {
+        }
+        if (arg[0] != '-') {
             input_file = arg;
         }
     }
-    
+
     try {
         std::string json = input_file.empty() ? read_stdin() : read_file(input_file);
-        
+
         // Parse benchmark
         auto parse_start = std::chrono::high_resolution_clock::now();
         auto doc = parse_document(json);
         auto parse_end = std::chrono::high_resolution_clock::now();
-        
+
         // Serialize benchmark (call timed; result discarded — to_json is pure)
         auto serialize_start = std::chrono::high_resolution_clock::now();
         doc.to_json();
         auto serialize_end = std::chrono::high_resolution_clock::now();
-        
-        auto parse_time = std::chrono::duration_cast<std::chrono::milliseconds>(parse_end - parse_start);
-        auto serialize_time = std::chrono::duration_cast<std::chrono::milliseconds>(serialize_end - serialize_start);
-        
+
+        auto parse_time
+            = std::chrono::duration_cast<std::chrono::milliseconds>(parse_end - parse_start);
+        auto serialize_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+            serialize_end - serialize_start);
+
         std::cout << "Benchmark Results:" << '\n';
         std::cout << "  Input size: " << json.size() << " bytes" << '\n';
         std::cout << "  Parse time: " << parse_time.count() << " ms" << '\n';
         std::cout << "  Serialize time: " << serialize_time.count() << " ms" << '\n';
-        std::cout << "  Total time: " << (parse_time.count() + serialize_time.count()) << " ms" << '\n';
-        
+        std::cout << "  Total time: " << (parse_time.count() + serialize_time.count()) << " ms"
+                  << '\n';
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
@@ -795,17 +825,19 @@ auto main(int argc, char* argv[]) -> int {
         show_usage();
         return 1;
     }
-    
+
     std::vector<std::string> args(argv, argv + argc);
     const std::string& command = args[1];
-    
+
     if (command == "help" || command == "--help" || command == "-h") {
         show_usage();
         return 0;
-    } if (command == "version" || command == "--version" || command == "-v") {
+    }
+    if (command == "version" || command == "--version" || command == "-v") {
         std::cout << "JSOM version " << JSOM_VERSION << '\n';
         return 0;
-    } if (command == "format") {
+    }
+    if (command == "format") {
         return format_command(args);
     } else if (command == "validate") {
         return validate_command(args);

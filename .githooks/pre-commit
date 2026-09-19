@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#
+# pre-commit: the fast gate (build + tests, ~15 s).
+#
+# The full set — format, ASan, fuzz, conformance, tidy, pristine — runs on push.
+# Deliberate bypass: git commit --no-verify
+#
+exec "$(git rev-parse --show-toplevel)/tools/ci.sh" build tests

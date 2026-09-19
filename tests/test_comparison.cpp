@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "jsom/json_document.hpp"
+#include <gtest/gtest.h>
 
 using namespace jsom;
 

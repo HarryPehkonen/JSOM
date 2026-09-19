@@ -10,6 +10,11 @@ _deps/
 .git_old/
 .claude/settings.local.json
 
+# Local CI: the config is per-machine (see .ci.env.example), the logs are scratch.
+# .ci/tidy-baseline.txt IS committed — it is the shared bar for the tidy gate.
+.ci.env
+.ci-logs/
+
 # Compiled files
 *.o
 *.a

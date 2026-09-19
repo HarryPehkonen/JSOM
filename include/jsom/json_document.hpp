@@ -98,8 +98,7 @@ public:
     auto operator=(JsonDocument&& other) noexcept -> JsonDocument&;
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    JsonDocument(bool value)
-        : type_(JsonType::Boolean), storage_(value), path_cache_(nullptr) {}
+    JsonDocument(bool value) : type_(JsonType::Boolean), storage_(value), path_cache_(nullptr) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
     JsonDocument(int value)
@@ -336,9 +335,7 @@ public:
         invalidate_cache();
     }
 
-    static auto make_array() -> JsonDocument {
-        return JsonDocument(std::vector<JsonDocument>{});
-    }
+    static auto make_array() -> JsonDocument { return JsonDocument(std::vector<JsonDocument>{}); }
 
     static auto make_object() -> JsonDocument {
         return JsonDocument(std::map<std::string, JsonDocument>{});
@@ -418,15 +415,15 @@ public:
         validate_type(JsonType::Object);
         // insert_or_assign (not operator[] =): no null-document default
         // construction before the move-assign (OPTIMIZATIONS.md #6).
-        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(
-            key, std::move(value));
+        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(key,
+                                                                                 std::move(value));
         invalidate_cache();
     }
 
     void set(std::string&& key, JsonDocument&& value) {
         validate_type(JsonType::Object);
-        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(
-            std::move(key), std::move(value));
+        std::get<std::map<std::string, JsonDocument>>(storage_).insert_or_assign(std::move(key),
+                                                                                 std::move(value));
         invalidate_cache();
     }
 

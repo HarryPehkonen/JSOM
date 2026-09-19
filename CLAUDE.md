@@ -63,6 +63,16 @@ cmake --build build --target tidy
 cmake --build build --target validation
 ```
 
+### Local CI (the gates, run by the hooks)
+
+`tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format build tests asan
+fuzz conform tidy pristine`); `.githooks/pre-commit` runs `build tests`, and
+`.githooks/pre-push` runs the full set and additionally requires a clean worktree. Enable
+once per clone with `git config core.hooksPath .githooks`. Per-machine settings live in
+`.ci.env` (gitignored; see `.ci.env.example`) — stage output goes to `.ci-logs/`.
+Use it directly while working: `tools/ci.sh build tests`, `tools/ci.sh pristine`,
+`tools/ci.sh --list`.
+
 ### Benchmarking
 ```bash
 # Run all benchmarks
