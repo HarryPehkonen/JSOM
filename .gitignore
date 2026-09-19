@@ -14,6 +14,9 @@ _deps/
 # .ci/tidy-baseline.txt IS committed — it is the shared bar for the tidy gate.
 .ci.env
 .ci-logs/
+# The pristine stage's scratch tree and its reused build directory (see tools/ci.sh).
+.ci/pristine/
+.ci/pristine-build/
 
 # Compiled files
 *.o
