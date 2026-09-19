@@ -672,11 +672,15 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
         expected_args = 4; // path + value
     }
 
-    // Find the file argument (last non-option argument)
+    // No pointer subcommand takes options. The old loop collected every `-`-prefixed
+    // argument into a vector nothing ever read, so a typo — or a flag deleted along with
+    // the path cache (`--cache-warm`, `--cache-stats`) — was silently ignored and the
+    // command exited 0. Fail loudly instead. Only `--`-prefixed words are treated as
+    // options, so a value like `-5` still works for `pointer set`.
     for (size_t i = 3; i < args.size(); ++i) {
-        const auto& arg = args[i];
-        if (arg[0] == '-') {
-            options.push_back(arg);
+        if (args[i].rfind("--", 0) == 0) {
+            std::cerr << "Unknown option: " << args[i] << "\n";
+            return 1;
         }
     }
 

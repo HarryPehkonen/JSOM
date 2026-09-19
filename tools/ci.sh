@@ -32,7 +32,7 @@ CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-10}          # smoke only; the real fuzzing i
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format build tests asan fuzz tsan std conform tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format build tests asan fuzz tsan std cli conform tidy pristine"}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -61,6 +61,7 @@ Stages:
   fuzz        libFuzzer smoke run, CI_FUZZ_SECONDS seconds, both configurations
   tsan        ThreadSanitizer: tests/thread_safety_probe.cpp, const reads from 4 threads
   std         tools/std_probe.cpp compiled and run as C++17, C++20 and C++23
+  cli         the `jsom` binary: exit codes, validation, pointer ops, bad flags
   coverage    line coverage of the library (gcov); opt-in, reports but never fails
   conform     RFC 8259 suite: asserts --validation=numbers (n_ 188/188), reports default
   tidy        clang-tidy against CI_TIDY_BASELINE (no NEW findings)
@@ -282,6 +283,16 @@ stage_coverage() {
     grep -E "= [0-9.]+%$" "$CI_LOG_DIR/coverage.log" | sed 's/^/      /'
     grep -E "^    [a-z_]+\.[ch]pp" "$CI_LOG_DIR/coverage.log" | head -6 | sed 's/^/    /'
     ci_pass coverage
+}
+
+stage_cli() {
+    ci_begin "cli (smoke tests for the jsom binary)"
+    if ! bash "$REPO_ROOT/tools/cli_smoke.sh" "$CI_BUILD_DIR/jsom" \
+        > "$CI_LOG_DIR/cli.log" 2>&1; then
+        ci_fail cli "a CLI check failed" "$CI_LOG_DIR/cli.log"
+    fi
+    tail -n 1 "$CI_LOG_DIR/cli.log" | sed 's/^/      /'
+    ci_pass cli
 }
 
 stage_conform() {
