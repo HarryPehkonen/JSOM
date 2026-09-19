@@ -66,7 +66,8 @@ cmake --build build --target validation
 ### Local CI (the gates, run by the hooks)
 
 `tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format build tests asan
-fuzz tsan conform tidy pristine`); `.githooks/pre-commit` runs `build tests`, and
+fuzz tsan std cli conform tidy pristine`, and `coverage` on request); `.githooks/pre-commit`
+runs `build tests`, and
 `.githooks/pre-push` runs the full set and additionally requires a clean worktree. Enable
 once per clone with `git config core.hooksPath .githooks`. Per-machine settings live in
 `.ci.env` (gitignored; see `.ci.env.example`) — stage output goes to `.ci-logs/`.
@@ -121,10 +122,15 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 - `JsonParseOptions`: Unicode escape handling (`convert_unicode_escapes`), comment tolerance (`allow_comments`), resource limits (`max_depth`) and the opt-in number grammar (`validate_numbers`)
 - Version: `project(JSOM VERSION ...)` in `CMakeLists.txt` is the single source; CMake generates `<jsom/version.hpp>` (`JSOM_VERSION`). Never hard-code a version anywhere else.
 
-**Formatting System** (`include/jsom/json_formatter.hpp`, `json_format_options.hpp`):
+**Formatting System** (`include/jsom/json_formatter.hpp`, `json_format_options.hpp`, `utf8.hpp`):
 - Intelligent formatting with 5 built-in presets (compact, pretty, config, api, debug)
-- Smart inlining decisions based on content size and complexity
-- Advanced options: key sorting, Unicode handling, alignment, wrapping
+- Smart inlining decisions based on content size and complexity — decided PER container, so
+  a container holding a container goes multiline while a small container of scalars inlines
+- Escaping: control characters are ALWAYS escaped (a raw one is not valid JSON);
+  `escape_unicode` escapes CODEPOINTS via `utf8::decode` (surrogate pairs above U+FFFF),
+  never UTF-8 bytes — `\u00c3\u00a4` is not "ä"
+- Behaviour is pinned by `tests/test_formatter_invariants.cpp` (round-trip, idempotence),
+  `tests/test_formatter_options.cpp` (one test per option) and `tests/test_utf8.cpp`
 
 ### Key Design Patterns
 

@@ -13,7 +13,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-project(JSOM VERSION 3.0.0 LANGUAGES CXX)
+project(JSOM VERSION 3.0.1 LANGUAGES CXX)
 
 # ================================
 # Version — single source of truth
