@@ -2,6 +2,12 @@
 #
 # pre-commit: the fast gate (build + tests, ~15 s).
 #
+# from AI-DEV-STARTER (plunk-in kit), templates/hooks/pre-commit. Deviation: the kit's
+# deno/python branch is dropped — this repo's gate is always tools/ci.sh, and a missing one
+# still fails the commit closed (exec returns 127), so the kit's "no gate found" message is
+# dropped with it. The kit says to record edits to its files in INCIDENTS.md; this repo has
+# no INCIDENTS.md, so the deviation is stated here instead.
+#
 # The full set — format, ASan, fuzz, conformance, tidy, pristine — runs on push.
 # Deliberate bypass: git commit --no-verify
 #

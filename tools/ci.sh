@@ -18,12 +18,19 @@
 # here, so the repo works with no config at all. See .ci.env.example.
 #
 # Exit status: 0 only if every stage that ran passed. A failing stage stops the run,
-# prints why, and leaves its full output in .ci-logs/<stage>.log.
+# prints why, and leaves its full output in .ci-logs/<stage>.log. The last line of a run
+# is always GATE PASSED or GATE FAILED, and a failure names every requested stage that
+# never ran (BLOCK <stage>), so a stage that did not run is never read as one that passed.
 
 set -uo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT" || exit 1
+
+# No colour from the tools: this script greps their output (warning:, error:, tests from)
+# and ANSI escapes defeat the greps. The escapes this script prints itself are for the
+# human reading the terminal.
+export NO_COLOR=1
 
 # ---------------------------------------------------------------- defaults + config
 CI_JOBS=${CI_JOBS:-$(nproc 2>/dev/null || echo 4)}
@@ -47,11 +54,14 @@ STAGES_REQUESTED=()
 
 # ---------------------------------------------------------------- plumbing
 RESULT_LINES=()
+RAN_STAGES=()
 FAILED_STAGE=""
 RUN_TMP_DIRS=()
 
 usage() {
-    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+    # The whole leading comment block: every line from 2 to the first blank one. Derived
+    # rather than hard-coded, so adding a line to the header cannot silently cut it off.
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
 Stages:
@@ -110,6 +120,7 @@ ci_fail() {
     fi
     FAILED_STAGE="$name"
     summary
+    printf '\nGATE FAILED\n' >&2
     exit 1
 }
 
@@ -119,6 +130,20 @@ summary() {
     for line in "${RESULT_LINES[@]}"; do printf '  %s\n' "$line"; done
     if [ -n "$FAILED_STAGE" ]; then
         printf '  stopped at: %s\n' "$FAILED_STAGE"
+        # A stage that never ran because an earlier one failed must not read as a stage
+        # that passed. Once the build fails, the stages behind it have nothing trustworthy
+        # to say, so they are named as blocked rather than silently omitted.
+        local s r ran
+        for s in "${STAGES_REQUESTED[@]:-}"; do
+            [ -n "$s" ] || continue
+            ran=0
+            for r in "${RAN_STAGES[@]:-}"; do
+                [ "$r" = "$s" ] && ran=1
+            done
+            if [ "$ran" = "0" ] && [ "$s" != "$FAILED_STAGE" ]; then
+                printf '  BLOCK %s (did not run: the run stopped at %s)\n' "$s" "$FAILED_STAGE"
+            fi
+        done
     fi
 }
 
@@ -493,6 +518,8 @@ for stage in "${STAGES_REQUESTED[@]}"; do
         exit 2
     fi
     "stage_$stage"
+    RAN_STAGES+=("$stage")
 done
 ELAPSED=$(( $(date +%s) - START ))
-printf '\nall %s stage(s) passed in %ss\n' "${#STAGES_REQUESTED[@]}" "$ELAPSED"
+summary
+printf '\nall %s stage(s) passed in %ss\nGATE PASSED\n' "${#STAGES_REQUESTED[@]}" "$ELAPSED"

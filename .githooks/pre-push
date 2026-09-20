@@ -10,6 +10,13 @@
 # validated when the branch was pushed. A tag pointing anywhere else (a local-only commit)
 # still runs the full gate, so nothing unpublished can slip through. Deletions are ignored.
 #
+# from AI-DEV-STARTER (plunk-in kit), templates/hooks/pre-push. Deviation: this hook passes
+# this repo's own eleven-stage list (the kit's C++ template pins eight) and adds the tag-only
+# fast path above, which the kit does not have; the kit's deno/python branch is dropped, and
+# a missing tools/ci.sh still fails the push closed (exec returns 127). The kit says to
+# record edits to its files in INCIDENTS.md; this repo has no INCIDENTS.md, so the deviation
+# is stated here instead.
+#
 # Deliberate bypass: git push --no-verify
 zero=0000000000000000000000000000000000000000
 only_tags=1
