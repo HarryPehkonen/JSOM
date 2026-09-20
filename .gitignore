@@ -31,6 +31,12 @@ test_*.json
 *.txt
 !CMakeLists.txt
 !requirements.txt
+# The tidy gate's accepted-findings list is a REPO file, not a scratch file: the comment
+# at the top of .ci/ says it is committed, and tools/ci.sh --write-tidy-baseline prints
+# `git add .ci/tidy-baseline.txt` as the next step. Without this negation that command is
+# refused by the *.txt rule above ("The following paths are ignored by one of your
+# .gitignore files", exit 1), so the one documented way to accept findings did nothing.
+!/.ci/tidy-baseline.txt
 
 # Python
 venv/
