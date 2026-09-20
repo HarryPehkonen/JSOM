@@ -32,6 +32,31 @@ cd "$REPO_ROOT" || exit 1
 # human reading the terminal.
 export NO_COLOR=1
 
+# git exports GIT_INDEX_FILE to a hook when the commit is made with a PATHSPEC
+# (`git commit -- <path>`): it names git's TEMPORARY index for that one commit, not this
+# repository's index, and every process a hook starts inherits it.
+#
+# This repo hits that in its OWN gate, on a cold `build` or on `pristine`: CMakeLists.txt
+# FetchContents googletest, benchmark and nlohmann_json, so cmake's update step runs
+# `git status` inside build/_deps/<dep>-src — with this repo's index handed to it, it reads
+# entries whose blobs that clone's object store does not have and dies on the first one,
+#     fatal: unable to read 691e2bdafaf312970644391de042d38c2c5972d8
+#     CMake Error at .../<dep>-populate-gitupdate.cmake:186 (message): Failed to get the status
+# so a pathspec commit fails its own gate at `build`, naming a dependency update, on a tree
+# that builds fine — measured on Computo, whose FetchContent of JSOM is the same shape
+# (cards t_9541aa62 -> t_0a9a0018). It leaves that checkout hollow too: no `.git/index`,
+# empty worktree, `git status` reporting its whole tree as staged deletions.
+#
+# Unset it once, here, rather than `env -u` on the configure lines: the variable reaches
+# every process the gate starts — all of them, the `pristine` archive build, and this repo's
+# own kitprobes scripts, which run git in throwaway repositories by design — so a
+# per-invocation fix covers the instance and leaves the class. Measured before choosing the
+# place (a real pathspec commit in a throwaway clone, the gate's own stages run both ways):
+# every input the `tree`/`format` stages read is identical and their output is byte-identical.
+# Ported from the kit's templates/cpp/ci.sh at f9c3300; tools/kit-probes/git-index-file.sh
+# holds this copy to it.
+unset GIT_INDEX_FILE
+
 # ---------------------------------------------------------------- defaults + config
 CI_JOBS=${CI_JOBS:-$(nproc 2>/dev/null || echo 4)}
 CI_BUILD_DIR=${CI_BUILD_DIR:-build}
