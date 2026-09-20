@@ -1,23 +1,23 @@
 {
   "kit": "AI-DEV-STARTER",
   "url": "https://github.com/HarryPehkonen/AI-DEV-STARTER",
-  "revision": "fb387f2044989f76bb2fe234cef39e85ac050328",
+  "revision": "951608c2675a2f5c2d0b59d9c19c632d23a043af",
   "recorded_at": "2026-09-20",
   "record_kind": "retroactive",
-  "record_note": "Wired by hand on 2026-09-18 (commit 3ee8251, 'ci: local gate runner + git hooks (no GitHub); format drift fixed; tidy clean'), before the kit existed as a git repo — so `revision` is the kit's FIRST PUBLISHED commit, not the exact copy point; do not read it as the tree this repo was copied from. The direction here is the reverse of the other recorded repos': JSOM's gate is one of the three real instances the kit's templates were generalised FROM (DESIGN-NOTES.md section 1 — the 2026-09-19 MoA design pass carried 'JSOM's tools/ci.sh + both hooks + .ci.env.example' verbatim in its prompt), and the only kit-to-repo traffic since is the tidy-baseline fix ported in 67302cc (card t_1eab5d69, already applied to all four files below). Two artifacts in the convention's C++ set have no entry because this repo never took them: INCIDENTS.md was never copied (grep -rn INCIDENTS over the repo returns nothing) and there is no kit-derived agent contract — CLAUDE.md is this repo's own, predating the kit (2026-02-15, extended 2026-09-08 and 2026-09-19) and following a different design from templates/CLAUDE.md.template, so a sync must never overwrite it. Synced on 2026-09-20 by card t_d899b8ff (the commit that carries this hash update): the four gate-contract rules this script used to predate — a final GATE PASSED/GATE FAILED token (it used to print only 'all N stage(s) passed in Xs'), BLOCK lines for every requested stage that did not run, export NO_COLOR=1 (this script greps tool output, and ANSI escapes defeat the greps), and a derived rather than hard-coded usage header range (was sed -n '2,21p') — plus the end-of-run summary the kit and jsonTools both print. Both hooks gained the kit's provenance line, with their deviation stated there instead of pointing at an INCIDENTS.md this repo does not have. Rule that keeps this file true: any commit that edits a copied artifact must update that artifact's repo_sha256 in the same commit.",
+  "record_note": "Wired by hand on 2026-09-18 (commit 3ee8251, 'ci: local gate runner + git hooks (no GitHub); format drift fixed; tidy clean'), before the kit existed as a git repo — so `revision` is the kit's FIRST PUBLISHED commit, not the exact copy point; do not read it as the tree this repo was copied from. The direction here is the reverse of the other recorded repos': JSOM's gate is one of the three real instances the kit's templates were generalised FROM (DESIGN-NOTES.md section 1 — the 2026-09-19 MoA design pass carried 'JSOM's tools/ci.sh + both hooks + .ci.env.example' verbatim in its prompt), and the only kit-to-repo traffic since is the tidy-baseline fix ported in 67302cc (card t_1eab5d69, already applied to all four files below). Two artifacts in the convention's C++ set have no entry because this repo never took them: INCIDENTS.md was never copied (grep -rn INCIDENTS over the repo returns nothing) and there is no kit-derived agent contract — CLAUDE.md is this repo's own, predating the kit (2026-02-15, extended 2026-09-08 and 2026-09-19) and following a different design from templates/CLAUDE.md.template, so a sync must never overwrite it. Synced on 2026-09-20 by card t_d899b8ff (the commit that carries this hash update): the four gate-contract rules this script used to predate — a final GATE PASSED/GATE FAILED token (it used to print only 'all N stage(s) passed in Xs'), BLOCK lines for every requested stage that did not run, export NO_COLOR=1 (this script greps tool output, and ANSI escapes defeat the greps), and a derived rather than hard-coded usage header range (was sed -n '2,21p') — plus the end-of-run summary the kit and jsonTools both print. Both hooks gained the kit's provenance line, with their deviation stated there instead of pointing at an INCIDENTS.md this repo does not have. Rule that keeps this file true: any commit that edits a copied artifact must update that artifact's repo_sha256 in the same commit. **2026-09-20, card t_0cc793fb:** the `kitprobes` stage and `tools/kit-probes/tidy-baseline.sh` were taken from the kit at the revision above — a fix that must propagate ships a probe, and this copy now runs it in its own gate. `revision` moved to that commit because these entries come from it; the earlier entries are still the fb387f2 wiring, and the kit files behind them have not changed between the two commits (the ones that did — `templates/cpp/ci.sh`, `templates/hooks/pre-push` — were ported in this same commit). **2026-09-20 (still card t_0cc793fb):** two more artifacts from the same kit revision are recorded here — the gate's dispatch guards (a stage that dies or returns non-zero without a verdict can no longer leave a green run; measured on this gate's own `local -a sources`) and that fix's own probe `tools/kit-probes/gate-stage-guards.sh`.",
   "files": [
     {
       "repo_path": "tools/ci.sh",
       "kit_path": "templates/cpp/ci.sh",
-      "repo_sha256": "8132e0b4f6f0ffe49f63cd4ceb1af6a43805f5285bc254a7a6d3e8adee5e2ba3",
-      "kit_sha256": "dcccb2066b856ec4bbbe04e98d74c37fffe5372a1486cab47623f403b9f613d1",
+      "repo_sha256": "d9cdc83e59cedc0a42a0e3bd6f784ac66cdd63c17ae3cc6d981e4731a64f210a",
+      "kit_sha256": "f60599bb44bed25c4b03b996f5526f6d7510ac1b69a6e636359885d0752d3086",
       "adapted": true,
       "adapted_why": "This file is the kit template's ancestor, not an instance of it (525 lines vs 634), and it stays specialised on purpose: only CI_JOBS/CI_BUILD_DIR/CI_ASAN_BUILD_DIR/CI_FUZZ_SECONDS/CI_LOG_DIR/CI_STRICT_TOOLS/CI_KEEP_TMP/CI_DEFAULT_STAGES/CI_TIDY_BASELINE are knobs, the build dirs and the test command are hard-coded, there is no version stage, and it adds four stages the template does not have (fuzz, std, cli, conform) plus opt-in coverage — a sync must not force the template's parameterisation or stage set onto it. The template's tidy-baseline fix (tidy_key applied to both operands, plus --write-tidy-baseline) is already here via 67302cc, so that divergence is not lag; the four gate-contract rules it used to lack (verdict token, BLOCK lines, NO_COLOR, derived usage range) came in with t_d899b8ff on 2026-09-20, so every divergence left is deliberate."
     },
     {
       "repo_path": ".ci.env.example",
       "kit_path": "templates/cpp/.ci.env.example",
-      "repo_sha256": "b522a56830e4b32c3fd9964f691449a7f57954d896cc6b7d98c8fd7d3392baac",
+      "repo_sha256": "9c023e7a50e8315a72ed1e46b7b2e5bc21923242abb872ab0d53d4dbc23d8009",
       "kit_sha256": "777a750755a10d79674d2ff7605130ceed14668416b44c3acefd73d819e43308",
       "adapted": true,
       "adapted_why": "Documents this script's knobs only: the template's CI_BUILD_TYPE, CI_SOURCE_GLOBS, CI_CMAKE_FLAGS, CI_TEST_CMD, CI_ASAN_TEST_CMD, CI_VERSION_HEADER and CI_VERSION_BINARIES blocks have no counterpart because tools/ci.sh hard-codes those, and this file adds CI_FUZZ_SECONDS, which the template does not have. Its clang-tidy section is the template's post-fix wording (both operands normalised, capture through the gate, never by hand), i.e. in sync thanks to 67302cc."
@@ -33,10 +33,24 @@
     {
       "repo_path": ".githooks/pre-push",
       "kit_path": "templates/hooks/pre-push",
-      "repo_sha256": "2b542c7b984cba1f8f7ed49168a62998ff257fe9e54d58b0f738bc3620f457ee",
-      "kit_sha256": "2c82ed7099fc5687795264521be327fdda23e8c02eadd3ac12bd9667186c0d18",
+      "repo_sha256": "7e88eaba24ec3200e5d7ee5b82d7f6a47f18a50795e2600fba1da964c6d9c312",
+      "kit_sha256": "f94958bcd22089f12d3987564ec2965d99577f6c667ee64ded466aa937e9a5eb",
       "adapted": true,
       "adapted_why": "Passes this repo's own stage list (tree format build tests asan fuzz tsan std cli conform tidy pristine) instead of the template's eight, drops the deno/python branch, and adds a tag-only-push fast path the template does not have (4748168): a tag whose commit is already on a remote branch skips the gates, while a tag pointing at a local-only commit still runs them. Stage list unchanged by t_d899b8ff (2026-09-20), which only added the kit's provenance line to the header, stating this deviation there instead of pointing at an INCIDENTS.md this repo does not have."
+    },
+    {
+      "repo_path": "tools/kit-probes/tidy-baseline.sh",
+      "kit_path": "probes/tidy-baseline.sh",
+      "repo_sha256": "efd9bbca108bb7bd1e527d95d09546c1b3bceca451054367b2fed6f92bfc6379",
+      "kit_sha256": "efd9bbca108bb7bd1e527d95d09546c1b3bceca451054367b2fed6f92bfc6379",
+      "adapted": false
+    },
+    {
+      "repo_path": "tools/kit-probes/gate-stage-guards.sh",
+      "kit_path": "probes/gate-stage-guards.sh",
+      "repo_sha256": "0a9f752c5081d6cc61b0f478ebee356d1358c7aca9562643411249901178be86",
+      "kit_sha256": "0a9f752c5081d6cc61b0f478ebee356d1358c7aca9562643411249901178be86",
+      "adapted": false
     }
   ]
 }

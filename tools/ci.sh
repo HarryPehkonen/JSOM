@@ -40,7 +40,7 @@ CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-10}          # smoke only; the real fuzzing i
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format build tests asan fuzz tsan std cli conform tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests asan fuzz tsan std cli conform tidy pristine"}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -67,6 +67,11 @@ usage() {
 Stages:
   tree        worktree clean? (only enforced with --require-clean) + .gitignore audit
   format      clang-format drift — dry run, reports files that need reformatting
+  kitprobes   the kit fixes this copy claims to carry, held to their contracts: every
+              script in tools/kit-probes/ checks one kit fix in THIS gate script by name
+              and by behaviour (offline, no kit checkout, no build, <1 s). A missing
+              directory SKIPs: it means this copy carries no probe yet, not that it is
+              behind. The rule: KIT-REVISION-CONVENTION.md
   build       cmake configure + build, zero warnings (-Werror)
   tests       ./<build>/jsom_tests
   asan        build-asan (-DJSOM_SANITIZE=ON) + the same tests under ASan+UBSan
@@ -224,7 +229,7 @@ stage_tree() {
 stage_format() {
     ci_begin "format"
     require_tool clang-format format || return 0
-    local -a sources
+    local -a sources=()
     mapfile -t sources < <(ci_sources)
     if clang-format --dry-run -Werror "${sources[@]}" > "$CI_LOG_DIR/format.log" 2>&1; then
         printf '    %s files conform to .clang-format\n' "${#sources[@]}"
@@ -472,6 +477,46 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ---------------------------------------------------------------- kit probes
+# A fix that must propagate ships a probe (docs/KIT-REVISION-CONVENTION.md). Each script
+# in tools/kit-probes/ holds this gate to ONE kit fix's contract — name and behaviour, not
+# bytes — and exits non-zero when the fix is absent. The directory IS the list of fixes
+# this copy claims to carry, so absence fails HERE, in under a second, on the machine that
+# would otherwise push the lag: no kit checkout, no network, no build.
+#
+# Why not a hash or a diff against the kit: the copies of this file are forks (a repo's
+# adapted stages, its own defaults, 60-586 differing lines), and diff SIZE measures
+# divergence, not lateness — a one-fix-behind copy is missing 27 kit lines while a
+# verified current record is missing 125. See the convention for the measurement.
+#
+# It is name- and contract-level: a semantic regression INSIDE a function that is still
+# present is not caught. That needs a real build and a real run, which is what the port
+# did by hand; the probe is the cheap net, not the whole net.
+stage_kitprobes() {
+    ci_begin "kit probes (the fixes this copy claims to carry)"
+    local self probe name failed=0
+    self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    if [ ! -d "$REPO_ROOT/tools/kit-probes" ]; then
+        ci_skip kitprobes "no tools/kit-probes/ — this copy carries no kit probe yet"
+        return 0
+    fi
+    for probe in "$REPO_ROOT"/tools/kit-probes/*.sh; do
+        [ -f "$probe" ] || continue
+        name="$(basename "$probe")"
+        if bash "$probe" "$self" "$REPO_ROOT"; then
+            printf '    ok   %s\n' "$name"
+        else
+            printf '    FAIL %s — this gate is missing that kit fix\n' "$name"
+            failed=1
+        fi
+    done
+    if [ "$failed" = "1" ]; then
+        ci_fail kitprobes "a probe failed: this copy is behind a kit fix — port it from the kit (tools/kit-probes/ names which)"
+    fi
+    printf '    every probe in tools/kit-probes/ verified against this gate\n'
+    ci_pass kitprobes
+}
+
 # ---------------------------------------------------------------- dispatch
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -517,9 +562,34 @@ for stage in "${STAGES_REQUESTED[@]}"; do
         printf 'unknown stage: %s (try --list)\n' "$stage" >&2
         exit 2
     fi
-    "stage_$stage"
+    # A stage that returns non-zero without reporting a verdict is not a pass, and a stage that
+    # dies from a shell error cannot report anything at all — so neither is left to the summary.
+    if ! "stage_$stage"; then
+        FAILED_STAGE="$stage"
+        summary
+        printf 'FAILED: %s exited non-zero without reporting a verdict\n' "$stage" >&2
+        printf '\nGATE FAILED\n' >&2
+        exit 1
+    fi
     RAN_STAGES+=("$stage")
 done
 ELAPSED=$(( $(date +%s) - START ))
+
+# The verdict comes from what RAN, not from what was requested. A shell error can unwind out of
+# the loop above without either guard seeing it — measured 2026-09-20 on Computo's fork: `set -u`
+# plus `local -a sources` (declared, never filled) made "${#sources[@]}" an unbound-variable
+# error, which aborted stage_format and the dispatch loop together, and the run then printed
+# "all 10 stage(s) passed ... GATE PASSED" after executing one stage of ten (INCIDENTS.md). This
+# comparison is the backstop for that whole class: if any requested stage did not run, the run
+# fails.
+if [ "${#RAN_STAGES[@]}" -ne "${#STAGES_REQUESTED[@]}" ]; then
+    summary
+    printf 'FAILED: %s of %s stage(s) did not run — the run ended early\n' \
+        "$(( ${#STAGES_REQUESTED[@]} - ${#RAN_STAGES[@]} ))" "${#STAGES_REQUESTED[@]}" >&2
+    printf '  ran: %s\n' "${RAN_STAGES[*]:-none}" >&2
+    printf '\nGATE FAILED\n' >&2
+    exit 1
+fi
+
 summary
 printf '\nall %s stage(s) passed in %ss\nGATE PASSED\n' "${#STAGES_REQUESTED[@]}" "$ELAPSED"
