@@ -17,6 +17,8 @@ _deps/
 # The pristine stage's scratch tree and its reused build directory (see tools/ci.sh).
 .ci/pristine/
 .ci/pristine-build/
+# The consumer probe's scratch tree: stub consumers + their build dirs (tools/consumer_probe.sh).
+.ci/consumer-probe/
 
 # Compiled files
 *.o

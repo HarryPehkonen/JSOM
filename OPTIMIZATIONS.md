@@ -116,6 +116,59 @@ keep full `-Werror` on all compilers.)*
 **Complexity:** none. **Risk:** none (an explicitly chosen build type still
 wins). **Impact:** 5–20× on all default builds, zero code change.
 
+#### Scope of the default — JSOM's own builds only (2026-09-20, card t_772eabd9)
+
+**What went wrong.** `CMAKE_BUILD_TYPE` is a CACHE variable, and a cache write with
+`FORCE` is global to the whole CMake run — so the three lines above did not stay in
+JSOM's scope. JSOM enters a consumer as a SUBDIRECTORY (`FetchContent_MakeAvailable`,
+`add_subdirectory`), so **JSOM was configuring its consumers**: Computo's Pages workflow,
+which passes no build type (exactly like `cmake -S . -B build`), inherited `Release` and
+compiled at `-O3` instead of CMake's `-O0`, and JSOM's own `-march=native` Release flags
+made it link objects built for the builder's CPU. That is how a gcc 13/14
+`-Wmaybe-uninitialized` false positive in libstdc++'s `<variant>` machinery took Computo's
+only production target offline for ~7 months (card t_93e9a66b, INCIDENTS there).
+
+**The decision (Harri, 2026-09-20):** keep the default — it is this section's whole point —
+but make it **top-level only**. A subproject must not be able to reconfigure its consumer.
+
+**The fix.** Both cache writes here are now gated on `JSOM_IS_TOP_LEVEL`, which is detected
+above them: `cmake -B build` in this repo still gets `Release` (no documented flow changes),
+and a consumer that asks for nothing now gets CMake's defaults. The **non-`FORCE` form is
+not** the fix — measured, not argued: a plain `set(CMAKE_BUILD_TYPE Release CACHE STRING
+"Build type")` is a no-op everywhere, because CMake has already created an empty
+`CMAKE_BUILD_TYPE:STRING=` cache entry by the time the script runs, so the non-forced
+`set()` finds an entry and leaves it. It would silently delete this default and fix nothing.
+
+**Same edit, same class of leak (both `FORCE`, both fixed the same way):**
+`CMAKE_INSTALL_PREFIX` was rewriting the CONSUMER's install prefix to `$HOME/.local` (a
+consumer that installs under the default would install into the builder's home), and
+`CMAKE_EXPORT_COMPILE_COMMANDS` — JSOM's own clang-tidy/IDE aid, so it is JSOM's own build
+that asks for it now. As a subdirectory it wrote a consumer's `compile_commands.json` with
+JSOM's translation units and NONE of the consumer's own, which a tidy gate reading that file
+would silently lint in place of the consumer's sources. A consumer that wants the database
+asks for it itself (jsonTools' and Computo's gates both pass
+`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`), and JSOM's TUs are then still in it, because the
+consumer's directory scope reaches this subdirectory.
+
+**Kept honest by a stage, not by intent:** `tools/consumer_probe.sh`, run as the gate's
+`consumer` stage on every run — 9 configure-only, offline checks over stub consumers
+(FetchContent and `add_subdirectory` shapes) asserting the cache stays theirs and that
+Release still lands for this repo's own build. 5 of those checks fail on the pre-fix tree
+(measured against `git archive` of the commit before this one), so the probe has teeth.
+
+**Deliberate asymmetry, recorded rather than normalised:** JSOM's gate builds `Release`
+(`-O3 -DNDEBUG -march=native`), while the AI-DEV-STARTER gate template and Computo default
+their gates to `Debug`. This is the section's default doing its job, not an oversight.
+The gcc<15 `-Wmaybe-uninitialized` suppression stays `PRIVATE` on `jsom_tests` and does not
+widen: it cannot reach a consumer TU (widening it means `INTERFACE`, i.e. the very leak this
+fixes), and JSOM's own non-test translation units already compile at `-O3` with the full
+warning set and zero warnings (measured on this box, gcc 14.2, 2026-09-20).
+
+**Companion, in jsonTools:** its gate passed no build type and its `Release` build directory
+existed only by inheriting this leak — so the guard alone would have dropped it to `-O0`
+silently. Its `tools/ci.sh` now sets `CI_BUILD_TYPE=Release` explicitly and passes it to
+every configure call, i.e. the same configuration as before, but chosen.
+
 ### 3. Object keys round-trip through a JsonDocument — ✅ IMPLEMENTED (`02482aa`)
 
 **Finding.** `parse_object` parses each key via `parse_string()` (returns a

@@ -40,7 +40,7 @@ CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-10}          # smoke only; the real fuzzing i
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests asan fuzz tsan std cli conform tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests consumer asan fuzz tsan std cli conform tidy pristine"}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -74,6 +74,10 @@ Stages:
               behind. The rule: KIT-REVISION-CONVENTION.md
   build       cmake configure + build, zero warnings (-Werror)
   tests       ./<build>/jsom_tests
+  consumer    JSOM's own defaults (CMAKE_BUILD_TYPE, CMAKE_INSTALL_PREFIX, the compile
+              database) stay JSOM's: a stub consumer that asks for nothing gets CMake's
+              defaults and no database, while JSOM's own `cmake -B build` still gets
+              Release. Configure-only, offline. The guard: tools/consumer_probe.sh
   asan        build-asan (-DJSOM_SANITIZE=ON) + the same tests under ASan+UBSan
   fuzz        libFuzzer smoke run, CI_FUZZ_SECONDS seconds, both configurations
   tsan        ThreadSanitizer: tests/thread_safety_probe.cpp, const reads from 4 threads
@@ -258,6 +262,24 @@ stage_tests() {
         || ci_fail tests "test failures" "$CI_LOG_DIR/tests.log"
     tail -n 2 "$CI_LOG_DIR/tests.log" | sed 's/^/      /'
     ci_pass tests
+}
+
+# The cache-scope guard (card t_772eabd9): JSOM enters a consumer's build as a
+# SUBDIRECTORY, and CMake's cache is global — so a FORCE cache write here configures the
+# consumer too. That is how Computo's Pages workflow, which passes no build type, silently
+# compiled at -O3 for months until a gcc 13/14 false positive in libstdc++'s <variant>
+# took its only production target offline (t_93e9a66b). Both writes are now gated on
+# JSOM_IS_TOP_LEVEL, and this stage is what keeps them that way: it configures stub
+# consumers (FetchContent and add_subdirectory), asserts the cache stays theirs, and
+# asserts JSOM's own Release default survives. Configure-only and offline; ~11 s.
+stage_consumer() {
+    ci_begin "consumer (JSOM's defaults configure JSOM only)"
+    if ! bash "$REPO_ROOT/tools/consumer_probe.sh" > "$CI_LOG_DIR/consumer.log" 2>&1; then
+        grep -E '^(ok|FAIL) ' "$CI_LOG_DIR/consumer.log" | sed 's/^/      /'
+        ci_fail consumer "a consumer of this repo is configured by JSOM's own defaults — the FAIL lines above name which" "$CI_LOG_DIR/consumer.log"
+    fi
+    tail -n 1 "$CI_LOG_DIR/consumer.log" | sed 's/^/      /'
+    ci_pass consumer
 }
 
 stage_asan() {

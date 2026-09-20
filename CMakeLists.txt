@@ -5,14 +5,6 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-# Default to an optimized build unless the user chose a build type
-# (OPTIMIZATIONS.md #2): an unset CMAKE_BUILD_TYPE silently compiles at -O0,
-# which made the documented `cmake -B build` flow 5-20x slower than it should
-# be. An explicitly chosen type (e.g. -DCMAKE_BUILD_TYPE=Debug) still wins.
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-endif()
-
 project(JSOM VERSION 3.0.1 LANGUAGES CXX)
 
 # ================================
@@ -29,14 +21,6 @@ configure_file(
     @ONLY
 )
 
-# Install prefix: default to the user's ~/.local so `install` needs no root.
-# Value-based check (not CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT) so it
-# also applies to EXISTING build dirs whose cache already holds /usr/local.
-# Override at install time with: cmake --install build --prefix <path>
-if(CMAKE_INSTALL_PREFIX STREQUAL "/usr/local")
-    set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Install prefix" FORCE)
-endif()
-
 # Detect if JSOM is being built standalone or as a subdirectory
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(JSOM_IS_TOP_LEVEL ON)
@@ -44,10 +28,45 @@ else()
     set(JSOM_IS_TOP_LEVEL OFF)
 endif()
 
+# Default to an optimized build unless the user chose a build type
+# (OPTIMIZATIONS.md #2): an unset CMAKE_BUILD_TYPE silently compiles at -O0,
+# which made the documented `cmake -B build` flow 5-20x slower than it should
+# be. An explicitly chosen type (e.g. -DCMAKE_BUILD_TYPE=Debug) still wins.
+#
+# TOP LEVEL ONLY: CMAKE_BUILD_TYPE is a CACHE variable, so a subproject that
+# sets it configures its CONSUMER too — Computo fetched JSOM and its Pages
+# workflow, which passes no build type, silently compiled at -O3 for months
+# (card t_772eabd9). JSOM's own default is unchanged for JSOM's own builds.
+if(JSOM_IS_TOP_LEVEL AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Install prefix: default to the user's ~/.local so `install` needs no root.
+# Value-based check (not CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT) so it
+# also applies to EXISTING build dirs whose cache already holds /usr/local.
+# Override at install time with: cmake --install build --prefix <path>
+# TOP LEVEL ONLY, for the same reason as the build type above: as a subproject
+# this would rewrite the CONSUMER's install prefix (card t_772eabd9).
+if(JSOM_IS_TOP_LEVEL AND CMAKE_INSTALL_PREFIX STREQUAL "/usr/local")
+    set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Install prefix" FORCE)
+endif()
+
 # Compiler configuration
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For clang-tidy and IDE support
+
+# Compile database: JSOM's own developer aid (clang-tidy, IDE), so it is asked for only
+# by JSOM's own build. Like the two defaults above this is the same class of leak: the
+# variable is a normal one, so it does not reach a consumer's directory, but JSOM enabling
+# it still writes JSOM's translation units into the CONSUMER's compile_commands.json — so
+# a consumer that sets nothing gets a database that holds JSOM's sources and NONE of its
+# own, and a tidy gate reading that file would lint JSOM and skip the consumer (card
+# t_772eabd9). A consumer that wants the database asks for it itself - jsonTools and
+# Computo both pass -DCMAKE_EXPORT_COMPILE_COMMANDS=ON, and JSOM's TUs are then in it
+# because the consumer's directory scope reaches this subdirectory.
+if(JSOM_IS_TOP_LEVEL)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
 
 # Compiler-specific optimizations
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
