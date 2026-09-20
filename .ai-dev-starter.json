@@ -17,6 +17,12 @@
       "from_revision": "951608c2675a2f5c2d0b59d9c19c632d23a043af",
       "probe": "probes/gate-stage-guards.sh",
       "adopted_in": "a7aa681"
+    },
+    {
+      "name": "git-index-file",
+      "from_revision": "f9c33005d880df095d7a5ab300d1ec5349c59aea",
+      "probe": "probes/git-index-file.sh",
+      "adopted_in": "f24ac92"
     }
   ],
   "declined_fixes": [
