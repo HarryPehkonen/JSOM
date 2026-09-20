@@ -9,6 +9,7 @@
 #   tools/ci.sh                      # all stages
 #   tools/ci.sh build tests          # just these stages, in the order given
 #   tools/ci.sh --list               # what the stages are
+#   tools/ci.sh --write-tidy-baseline   # accept the tidy findings you inherited
 #   tools/ci.sh --help
 #
 #   git config core.hooksPath .githooks     # one-time, per clone, enables the hooks
@@ -41,6 +42,7 @@ if [ -f .ci.env ]; then
 fi
 
 REQUIRE_CLEAN=0
+WRITE_TIDY_BASELINE=0
 STAGES_REQUESTED=()
 
 # ---------------------------------------------------------------- plumbing
@@ -49,7 +51,7 @@ FAILED_STAGE=""
 RUN_TMP_DIRS=()
 
 usage() {
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
     cat <<'EOF'
 
 Stages:
@@ -64,13 +66,18 @@ Stages:
   cli         the `jsom` binary: exit codes, validation, pointer ops, bad flags
   coverage    line coverage of the library (gcov); opt-in, reports but never fails
   conform     RFC 8259 suite: asserts --validation=numbers (n_ 188/188), reports default
-  tidy        clang-tidy against CI_TIDY_BASELINE (no NEW findings)
+  tidy        clang-tidy against CI_TIDY_BASELINE (no NEW findings). Findings compare
+              line-blind and clone-blind — capture the baseline with
+              --write-tidy-baseline, never by hand (see .ci.env.example)
   pristine    git archive HEAD -> temp dir -> configure, build, test: proves the
               COMMITTED tree is complete (catches files that are uncommitted or ignored)
 
 Options:
   --require-clean   make the tree stage fail when the worktree is dirty (used by pre-push)
   --strict-tools    a missing tool (clang-format/tidy) fails instead of skipping
+  --write-tidy-baseline
+                    accept every finding tidy reports now into CI_TIDY_BASELINE (runs the
+                    build and tidy stages first); prints, and IS NOT, a gate pass
   --list            list the default stages and exit
   --help            this text
 EOF
@@ -135,6 +142,29 @@ ci_sources() {
     git ls-files --cached --others --exclude-standard -- \
         'include/jsom/*.hpp' 'src/*.cpp' 'tests/*.cpp' 'tools/*.cpp' 'benchmarks/*.cpp' \
         | sort -u
+}
+
+# The comparable form of a clang-tidy finding — applied to BOTH sides of the baseline
+# comparison, so the file a repo captures and the log this gate just wrote are the same
+# shape:
+#
+#   <repo>/src/foo.cpp:42:7: warning: ...   ->   src/foo.cpp: warning: ...
+#
+#   * the repo root is stripped: clang-tidy reports the path it was handed by the compile
+#     database, which CMake writes as an absolute path, so a baseline captured in one clone
+#     names no finding in a checkout at another path (the nightly clean checkout, a
+#     colleague's machine) and every inherited finding reads as new;
+#   * :line:column is stripped, so the same finding after an unrelated edit above it is
+#     still the same finding. This is line-blind on purpose, and the flip side is worth
+#     knowing: a SECOND identical finding in a file that already has one collapses into the
+#     first. Fix the baselined finding instead of growing the baseline.
+#
+# `tools/ci.sh --write-tidy-baseline` captures the baseline through this same function, so
+# the documented way to accept findings cannot drift from the way they are compared.
+tidy_key() {
+    awk -v root="$REPO_ROOT/" '
+        { i = index($0, root); if (i) $0 = substr($0, i + length(root)); print }' \
+        | sed 's/:[0-9]*:[0-9]*:/:/'
 }
 
 mkdir -p "$CI_LOG_DIR"
@@ -320,9 +350,12 @@ stage_tidy() {
     findings=$(grep -cE "warning:|error:" "$CI_LOG_DIR/tidy.log" || true)
     if [ -f "$CI_TIDY_BASELINE" ]; then
         local new_findings
+        # Both sides go through tidy_key, and both sides are de-duplicated: one key per
+        # distinct finding. A baseline captured by `--write-tidy-baseline` is already in
+        # that form; anything else in the file is normalised here rather than trusted.
         new_findings=$(comm -13 \
-            <(sort "$CI_TIDY_BASELINE") \
-            <(grep -E "warning:|error:" "$CI_LOG_DIR/tidy.log" | sed 's/:[0-9]*:[0-9]*:/:/' | sort) | wc -l)
+            <(tidy_key < "$CI_TIDY_BASELINE" | sort -u) \
+            <(grep -E "warning:|error:" "$CI_LOG_DIR/tidy.log" | tidy_key | sort -u) | wc -l)
         if [ "$new_findings" -gt 0 ]; then
             ci_fail tidy "$new_findings new finding(s) vs $CI_TIDY_BASELINE" "$CI_LOG_DIR/tidy.log"
         fi
@@ -330,10 +363,42 @@ stage_tidy() {
     else
         printf '    %s finding(s), no baseline file (%s)\n' "$findings" "$CI_TIDY_BASELINE"
         if [ "$findings" -gt 0 ]; then
-            ci_fail tidy "findings with no baseline to compare against" "$CI_LOG_DIR/tidy.log"
+            ci_fail tidy "$findings finding(s) and no baseline file — accept them in one step with 'tools/ci.sh --write-tidy-baseline', or fix them; see .ci.env.example" "$CI_LOG_DIR/tidy.log"
         fi
     fi
     ci_pass tidy
+}
+
+# Capture the accepted-findings baseline. Not a stage: the list is compared against every
+# finding in the log, not against the outcome of the run, and the run is EXPECTED to fail
+# while there is no baseline yet. It runs the real stages as a child so there is exactly one
+# definition of what a finding is (tidy_key) and of where tidy's log comes from.
+write_tidy_baseline() {
+    printf '\n\033[1m==> write the tidy baseline\033[0m (%s)\n' "$CI_TIDY_BASELINE"
+    printf '    running the real build + tidy stages (build first: tidy refuses to run without\n'
+    printf '    %s/compile_commands.json; treat the tidy failure below as expected)\n\n' "$CI_BUILD_DIR"
+    bash "$0" build tidy > "$CI_LOG_DIR/write-baseline.log" 2>&1
+    if [ ! -f "$CI_LOG_DIR/tidy.log" ]; then
+        printf 'no %s was written, so there is nothing to capture — the run stopped before the tidy stage:\n' "$CI_LOG_DIR/tidy.log" >&2
+        tail -n 20 "$CI_LOG_DIR/write-baseline.log" | sed 's/^/      /' >&2
+        printf '    full log: %s\n' "$CI_LOG_DIR/write-baseline.log" >&2
+        exit 1
+    fi
+    mkdir -p "$(dirname "$CI_TIDY_BASELINE")"
+    grep -E 'warning:|error:' "$CI_LOG_DIR/tidy.log" | tidy_key | sort -u > "$CI_TIDY_BASELINE"
+    local accepted
+    accepted=$(grep -c . "$CI_TIDY_BASELINE" || true)
+    printf '    %s finding(s) accepted into %s:\n' "${accepted:-0}" "$CI_TIDY_BASELINE"
+    head -20 "$CI_TIDY_BASELINE" | sed 's/^/      /'
+    if [ "${accepted:-0}" -eq 0 ]; then
+        printf '\nNothing to accept: the tidy stage is clean, so delete %s and keep the stage strict.\n' "$CI_TIDY_BASELINE"
+        exit 0
+    fi
+    printf '\nThis is NOT a gate pass: from now on the tidy stage tolerates exactly these findings\n'
+    printf 'and fails on anything else. Commit the file — it is this repo'"'"'s accepted-findings list,
+'
+    printf 'and the tree stage fails on a file that is neither committed nor ignored:\n'
+    printf '    git add %s && git commit -m "ci: accept the inherited clang-tidy findings"\n' "$CI_TIDY_BASELINE"
 }
 
 stage_pristine() {
@@ -401,11 +466,20 @@ while [ $# -gt 0 ]; do
             exit 0 ;;
         --require-clean) REQUIRE_CLEAN=1 ;;
         --strict-tools) CI_STRICT_TOOLS=1 ;;
+        --write-tidy-baseline) WRITE_TIDY_BASELINE=1 ;;
         -*) printf 'unknown option: %s (try --help)\n' "$1" >&2; exit 2 ;;
         *) STAGES_REQUESTED+=("$1") ;;
     esac
     shift
 done
+
+# Accepting inherited findings is its own mode, not a stage: it produces no verdict about
+# the tree, only a file (and it exits before the summary so it can never print
+# "GATE PASSED" about a run whose tidy stage failed on purpose).
+if [ "$WRITE_TIDY_BASELINE" = "1" ]; then
+    write_tidy_baseline
+    exit 0
+fi
 
 if [ ${#STAGES_REQUESTED[@]} -eq 0 ]; then
     # shellcheck disable=SC2206
