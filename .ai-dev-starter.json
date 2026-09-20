@@ -1,0 +1,42 @@
+{
+  "kit": "AI-DEV-STARTER",
+  "url": "https://github.com/HarryPehkonen/AI-DEV-STARTER",
+  "revision": "fb387f2044989f76bb2fe234cef39e85ac050328",
+  "recorded_at": "2026-09-20",
+  "record_kind": "retroactive",
+  "record_note": "Wired by hand on 2026-09-18 (commit 3ee8251, 'ci: local gate runner + git hooks (no GitHub); format drift fixed; tidy clean'), before the kit existed as a git repo — so `revision` is the kit's FIRST PUBLISHED commit, not the exact copy point; do not read it as the tree this repo was copied from. The direction here is the reverse of the other recorded repos': JSOM's gate is one of the three real instances the kit's templates were generalised FROM (DESIGN-NOTES.md section 1 — the 2026-09-19 MoA design pass carried 'JSOM's tools/ci.sh + both hooks + .ci.env.example' verbatim in its prompt), and the only kit-to-repo traffic since is the tidy-baseline fix ported in 67302cc (card t_1eab5d69, already applied to all four files below). Two artifacts in the convention's C++ set have no entry because this repo never took them: INCIDENTS.md was never copied (grep -rn INCIDENTS over the repo returns nothing) and there is no kit-derived agent contract — CLAUDE.md is this repo's own, predating the kit (2026-02-15, extended 2026-09-08 and 2026-09-19) and following a different design from templates/CLAUDE.md.template, so a sync must never overwrite it. Known lag, recorded rather than fixed here because this card is a record: four contract rules the kit's script has and this one predates — a final GATE PASSED/GATE FAILED token (it prints 'all N stage(s) passed in Xs'), BLOCK lines for requested stages that did not run, export NO_COLOR=1, and a derived rather than hard-coded usage header range (sed -n '2,21p'). Follow-up card t_d899b8ff syncs those four and nothing else. Rule that keeps this file true: any commit that edits a copied artifact must update that artifact's repo_sha256 in the same commit.",
+  "files": [
+    {
+      "repo_path": "tools/ci.sh",
+      "kit_path": "templates/cpp/ci.sh",
+      "repo_sha256": "6aa934424352476dc485db62961604f8878685e1c21175b4076dceb355b56b15",
+      "kit_sha256": "dcccb2066b856ec4bbbe04e98d74c37fffe5372a1486cab47623f403b9f613d1",
+      "adapted": true,
+      "adapted_why": "This file is the kit template's ancestor, not an instance of it (498 lines vs 634), and it stays specialised on purpose: only CI_JOBS/CI_BUILD_DIR/CI_ASAN_BUILD_DIR/CI_FUZZ_SECONDS/CI_LOG_DIR/CI_STRICT_TOOLS/CI_KEEP_TMP/CI_DEFAULT_STAGES/CI_TIDY_BASELINE are knobs, the build dirs and the test command are hard-coded, there is no version stage, and it adds four stages the template does not have (fuzz, std, cli, conform) plus opt-in coverage — a sync must not force the template's parameterisation or stage set onto it. The template's tidy-baseline fix (tidy_key applied to both operands, plus --write-tidy-baseline) is already here via 67302cc, so that divergence is not lag; the four contract rules it still lacks are named in record_note."
+    },
+    {
+      "repo_path": ".ci.env.example",
+      "kit_path": "templates/cpp/.ci.env.example",
+      "repo_sha256": "b522a56830e4b32c3fd9964f691449a7f57954d896cc6b7d98c8fd7d3392baac",
+      "kit_sha256": "777a750755a10d79674d2ff7605130ceed14668416b44c3acefd73d819e43308",
+      "adapted": true,
+      "adapted_why": "Documents this script's knobs only: the template's CI_BUILD_TYPE, CI_SOURCE_GLOBS, CI_CMAKE_FLAGS, CI_TEST_CMD, CI_ASAN_TEST_CMD, CI_VERSION_HEADER and CI_VERSION_BINARIES blocks have no counterpart because tools/ci.sh hard-codes those, and this file adds CI_FUZZ_SECONDS, which the template does not have. Its clang-tidy section is the template's post-fix wording (both operands normalised, capture through the gate, never by hand), i.e. in sync thanks to 67302cc."
+    },
+    {
+      "repo_path": ".githooks/pre-commit",
+      "kit_path": "templates/hooks/pre-commit",
+      "repo_sha256": "d892b4862d8dfd80c2edcf9bf059d76a2d5a36e9cc819c0376c688e1660f7b46",
+      "kit_sha256": "e304ddcb48e216029c8e77402d927695dae4895532f6bf12d1ecb54604b652d8",
+      "adapted": true,
+      "adapted_why": "Five lines, C++-only: the deno/python branch and the 'no gate found' message are deleted (a missing tools/ci.sh still fails the commit closed — exec returns 127), and the file carries no kit provenance header. Same two-stage fast tier as the template (build tests)."
+    },
+    {
+      "repo_path": ".githooks/pre-push",
+      "kit_path": "templates/hooks/pre-push",
+      "repo_sha256": "f2da07407ae27a738ac18c08481d67b9ed64f12ddc7d85507caa6ca750ce5f33",
+      "kit_sha256": "2c82ed7099fc5687795264521be327fdda23e8c02eadd3ac12bd9667186c0d18",
+      "adapted": true,
+      "adapted_why": "Passes this repo's own stage list (tree format build tests asan fuzz tsan std cli conform tidy pristine) instead of the template's eight, drops the deno/python branch, and adds a tag-only-push fast path the template does not have (4748168): a tag whose commit is already on a remote branch skips the gates, while a tag pointing at a local-only commit still runs them."
+    }
+  ]
+}
