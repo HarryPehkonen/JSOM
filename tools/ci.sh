@@ -61,7 +61,14 @@ unset GIT_INDEX_FILE
 CI_JOBS=${CI_JOBS:-$(nproc 2>/dev/null || echo 4)}
 CI_BUILD_DIR=${CI_BUILD_DIR:-build}
 CI_ASAN_BUILD_DIR=${CI_ASAN_BUILD_DIR:-build-asan}
-CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-10}          # smoke only; the real fuzzing is the nightly cron
+CI_FUZZ_SECONDS=${CI_FUZZ_SECONDS:-20}          # smoke only; the real fuzzing is the nightly cron.
+                                                # 20 not 10 since 2026-09-20: all three readings
+                                                # now run per input (~870 exec/s versus ~8,200 for
+                                                # the byte reading alone), so the same wall clock
+                                                # does ~9x less byte work. The seconds claw that
+                                                # back; CI_FUZZ_READINGS picks the readings.
+CI_FUZZ_READINGS=${CI_FUZZ_READINGS:-all}       # all | byte | structured | mutator | comma list
+CI_FUZZ_JSONFUZZ_DIR=${CI_FUZZ_JSONFUZZ_DIR:-}   # offline override for the JSONFuzz sibling repo
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
@@ -325,10 +332,45 @@ stage_fuzz() {
         ci_skip fuzz "clang++ not installed (libFuzzer needs clang)"
         return 0
     fi
-    cmake --build "$CI_BUILD_DIR" --target build_fuzzer > "$CI_LOG_DIR/fuzz-build.log" 2>&1 \
+    # The fuzzer now drives JSONFuzz's structure-aware generator, mutators and oracles,
+    # so it is gated behind JSOM_BUILD_FUZZING (OFF by default, so the normal build and
+    # the `pristine` stage never fetch the sibling repo). This stage configures its OWN
+    # build dir with that option on. DEVIATION from the other stages: JSONFuzz comes in
+    # via FetchContent pinned to a pushed commit, with CI_FUZZ_JSONFUZZ_DIR as the
+    # offline override (the pattern JSONFuzz itself uses for nlohmann) — set it in
+    # .ci.env to a local checkout so this stage needs no network.
+    local fuzz_build="$CI_BUILD_DIR-fuzz"
+    local jsonfuzz_opt=()
+    if [ -n "${CI_FUZZ_JSONFUZZ_DIR:-}" ]; then
+        jsonfuzz_opt=(-DJSONFUZZ_SOURCE_DIR="$CI_FUZZ_JSONFUZZ_DIR")
+    fi
+    cmake -S . -B "$fuzz_build" -DJSOM_BUILD_FUZZING=ON -DJSOM_BUILD_TESTS=OFF \
+        -DCMAKE_CXX_COMPILER=clang++ "${jsonfuzz_opt[@]}" \
+        > "$CI_LOG_DIR/fuzz-configure.log" 2>&1 \
+        || ci_fail fuzz "fuzz configure failed" "$CI_LOG_DIR/fuzz-configure.log"
+    cmake --build "$fuzz_build" --target fuzz_jsom -j "$CI_JOBS" \
+        > "$CI_LOG_DIR/fuzz-build.log" 2>&1 \
         || ci_fail fuzz "fuzz target build failed" "$CI_LOG_DIR/fuzz-build.log"
+    # Reach smoke FIRST: -runs=0 plays every seed and exits non-zero unless each ENABLED
+    # reading reached its oracle laws. With the default (all three) this is what keeps every
+    # reading live in the gate — "at least one input got there" is the guard that hid a blind
+    # spot in a sibling repo, where 117 of 9,952 inputs reached the assertion and a class-shaped
+    # sabotage still survived 4.2 M executions.
+    if ! JSOM_FUZZ_REQUIRE_REACH=1 JSOM_FUZZ_READINGS="$CI_FUZZ_READINGS" \
+            "$fuzz_build/fuzz_jsom" fuzz/seeds -runs=0 > "$CI_LOG_DIR/fuzz-smoke.log" 2>&1; then
+        ci_fail fuzz "the -runs=0 reach smoke failed (a reading starved, or a finding)" \
+            "$CI_LOG_DIR/fuzz-smoke.log"
+    fi
+    # Then the knob's own contract: exactly the named readings run, a deselected one does no
+    # work, and a typo fails loudly instead of silently reducing coverage.
+    if ! tools/fuzz_readings_smoke.sh "$fuzz_build/fuzz_jsom" \
+            > "$CI_LOG_DIR/fuzz-readings.log" 2>&1; then
+        ci_fail fuzz "the JSOM_FUZZ_READINGS contract failed" "$CI_LOG_DIR/fuzz-readings.log"
+    fi
+    grep -E "readings enabled" "$CI_LOG_DIR/fuzz-smoke.log" | tail -n 1 | sed 's/^/      /'
     mkdir -p corpus
-    if ./fuzz_jsom corpus fuzz/seeds -dict=fuzz/jsom.dict -artifact_prefix=corpus/ \
+    if JSOM_FUZZ_READINGS="$CI_FUZZ_READINGS" "$fuzz_build/fuzz_jsom" corpus fuzz/seeds \
+            -dict=fuzz/jsom.dict -artifact_prefix=corpus/ \
             -max_total_time="$CI_FUZZ_SECONDS" > "$CI_LOG_DIR/fuzz.log" 2>&1; then
         grep -E "^Done |^#[0-9]+.*cov:" "$CI_LOG_DIR/fuzz.log" | tail -n 1 | sed 's/^/      /'
         ci_pass fuzz

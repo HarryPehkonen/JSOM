@@ -108,6 +108,13 @@ add_library(JSOM::jsom ALIAS jsom_lib)
 
 # Build options (must be defined before test/benchmark configuration)
 option(JSOM_BUILD_BENCHMARKS "Build JSOM benchmarks" OFF)  # Always OFF unless explicitly enabled
+# The libFuzzer target needs clang AND the JSONFuzz sibling repo (structure-aware
+# generator + mutators + oracles). OFF by default so JSOM's normal build and its
+# `pristine` stage do not need the sibling repo or a network fetch. The `fuzz` stage in
+# tools/ci.sh turns it on in its own build dir. JSONFuzz comes in via FetchContent pinned
+# to a pushed commit, with -DJSONFUZZ_SOURCE_DIR=<path> as the offline override (the
+# pattern JSONFuzz itself uses for nlohmann).
+option(JSOM_BUILD_FUZZING "Build the libFuzzer target (clang only; needs JSONFuzz)" OFF)
 set(JSOM_SANITIZE "" CACHE STRING
     "Sanitizers to build with: ON/address (AddressSanitizer + UBSan), thread (ThreadSanitizer), or empty")
 if(JSOM_SANITIZE)
@@ -386,27 +393,134 @@ add_custom_target(quality_check
 find_program(CLANG_PLUS_PLUS NAMES clang++)
 find_program(VALGRIND NAMES valgrind)
 
-# Fuzzing target with libFuzzer
-if(CLANG_PLUS_PLUS)
-    add_custom_target(build_fuzzer
-        COMMAND ${CLANG_PLUS_PLUS} -g -O1 -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined
-                -I${CMAKE_CURRENT_SOURCE_DIR}/include
-                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzzer.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_pointer.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/json_document_formatting.cpp
-                -o fuzz_jsom
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Building fuzzer with AddressSanitizer and UndefinedBehaviorSanitizer"
+# Fuzzing target with libFuzzer. Gated behind JSOM_BUILD_FUZZING (default OFF): the
+# harness (tests/fuzzer.cpp) now drives JSONFuzz's structure-aware generator, mutators
+# and oracles, so it needs the JSONFuzz sibling repo. The normal build and the `pristine`
+# stage do not enable this option, so they never fetch JSONFuzz.
+if(JSOM_BUILD_FUZZING)
+    # JSONFuzz: FetchContent pinned to a pushed commit, with -DJSONFUZZ_SOURCE_DIR=<path>
+    # as the offline override (the pattern JSONFuzz itself uses for nlohmann). The pinned
+    # commit is the HEAD this adapter was written and tested against.
+    #
+    # DEVIATION from a plain FetchContent_MakeAvailable: JSONFuzz's CMakeLists defines a
+    # target named `format` (and `tidy`-adjacent helpers) that collides with JSOM's own
+    # `format` target when JSONFuzz is pulled in as a subdirectory — measured, the
+    # configure dies with "add_custom_target cannot create target 'format' because
+    # another target with the same name already exists". So instead of calling JSONFuzz's
+    # CMakeLists we fetch its SOURCE and build the jsonfuzz_core translation units
+    # directly here, replicating only the two things that CMakeLists does for them: the
+    # generated <jsonfuzz/version.hpp> and the nlohmann dependency. The SUT interface is
+    # strings-only, so jsonfuzz_core's nlohmann dependency stays PRIVATE and never leaks
+    # into JSOM's targets.
+    if(DEFINED JSONFUZZ_SOURCE_DIR)
+        message(STATUS "JSONFuzz: using source dir ${JSONFUZZ_SOURCE_DIR}")
+        set(JSONFUZZ_SRC ${JSONFUZZ_SOURCE_DIR})
+    else()
+        FetchContent_Declare(
+            jsonfuzz
+            GIT_REPOSITORY https://github.com/HarryPehkonen/JSONFuzz.git
+            GIT_TAG        b1fbabb  # pin: the commit the JSOM adapter targets
+        )
+        FetchContent_GetProperties(jsonfuzz)
+        if(NOT jsonfuzz_POPULATED)
+            FetchContent_Populate(jsonfuzz)
+        endif()
+        set(JSONFUZZ_SRC ${jsonfuzz_SOURCE_DIR})
+    endif()
+
+    # Replicate JSONFuzz's generated version header (its CMakeLists configure_file).
+    set(JSONFUZZ_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/jsonfuzz-generated)
+    set(PROJECT_VERSION_MAJOR 0)
+    set(PROJECT_VERSION_MINOR 1)
+    set(PROJECT_VERSION_PATCH 0)
+    set(PROJECT_VERSION "0.1.0")
+    configure_file(
+        ${JSONFUZZ_SRC}/cmake/version.hpp.in
+        ${JSONFUZZ_GENERATED_INCLUDE_DIR}/jsonfuzz/version.hpp
+        @ONLY
     )
-    
+
+    # nlohmann/json is jsonfuzz_core's own model (PRIVATE, never a SUT).
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.11.3
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+
+    # jsonfuzz_core, built from JSONFuzz's sources (see the deviation note above).
+    add_library(jsonfuzz_core
+        ${JSONFUZZ_SRC}/src/jsonfuzz_core.cpp
+        ${JSONFUZZ_SRC}/src/jsonfuzz_sut.cpp
+        ${JSONFUZZ_SRC}/src/jsonfuzz_generator.cpp
+        ${JSONFUZZ_SRC}/src/jsonfuzz_mutate.cpp
+        ${JSONFUZZ_SRC}/src/jsonfuzz_oracle.cpp
+        ${JSONFUZZ_SRC}/src/jsonfuzz_readings.cpp
+    )
+    target_include_directories(jsonfuzz_core PUBLIC
+        ${JSONFUZZ_SRC}/include
+        ${JSONFUZZ_GENERATED_INCLUDE_DIR}
+    )
+    target_link_libraries(jsonfuzz_core PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_features(jsonfuzz_core PRIVATE cxx_std_17)
+
+    # The JSOM JSONFuzz adapter: a jsonfuzz::SystemUnderTest wrapping jsom::JsonDocument.
+    add_library(jsom_jsonfuzz_adapter fuzz/jsonfuzz_jsom.cpp)
+    target_include_directories(jsom_jsonfuzz_adapter PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
+    )
+    target_link_libraries(jsom_jsonfuzz_adapter PUBLIC jsom_lib jsonfuzz_core)
+    target_compile_features(jsom_jsonfuzz_adapter PRIVATE cxx_std_17)
+
+    # The harness as a compile-only OBJECT library in this build, so the tidy gate has a
+    # translation unit for it (the same pattern JSONFuzz uses for its fuzz target). The
+    # source stays g++-clean: it must not include libFuzzer-only headers.
+    add_library(jsom_fuzz_obj OBJECT tests/fuzzer.cpp)
+    target_include_directories(jsom_fuzz_obj PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
+        ${JSONFUZZ_SRC}/include
+        ${JSONFUZZ_GENERATED_INCLUDE_DIR}
+    )
+    target_compile_features(jsom_fuzz_obj PRIVATE cxx_std_17)
+
+    # The libFuzzer executable (clang only). The custom mutator and the structured
+    # readings live in tests/fuzzer.cpp; jsonfuzz_core provides jsonfuzz::mutate and the
+    # oracles, jsom_jsonfuzz_adapter provides the SUT.
+    add_executable(fuzz_jsom tests/fuzzer.cpp)
+    target_link_libraries(fuzz_jsom PRIVATE jsom_lib jsom_jsonfuzz_adapter jsonfuzz_core)
+    target_include_directories(fuzz_jsom PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
+    )
+    target_compile_options(fuzz_jsom PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g)
+    target_link_options(fuzz_jsom PRIVATE -fsanitize=fuzzer,address,undefined)
+
+    # Adapter tests (need JSONFuzz, so they live in this gated build, not jsom_tests).
+    if(JSOM_BUILD_TESTS)
+        add_executable(jsom_fuzz_tests tests/test_jsonfuzz_adapter.cpp)
+        target_link_libraries(jsom_fuzz_tests PRIVATE
+            jsom_lib jsom_jsonfuzz_adapter jsonfuzz_core gtest gtest_main)
+        target_include_directories(jsom_fuzz_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
+        )
+        add_custom_target(run_fuzz_tests
+            COMMAND jsom_fuzz_tests
+            DEPENDS jsom_fuzz_tests
+            COMMENT "Running the JSONFuzz adapter tests"
+        )
+    endif()
+
     # Quick fuzzing (1 minute)
     add_custom_target(fuzz_quick
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+        COMMAND $<TARGET_FILE:fuzz_jsom> corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
                 -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
                 -artifact_prefix=corpus/
                 -max_total_time=60
-        DEPENDS build_fuzzer
+        DEPENDS fuzz_jsom
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running quick fuzz test (1 minute)"
     )
@@ -414,11 +528,11 @@ if(CLANG_PLUS_PLUS)
     # Standard fuzzing (10 minutes)
     add_custom_target(fuzz
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+        COMMAND $<TARGET_FILE:fuzz_jsom> corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
                 -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
                 -artifact_prefix=corpus/
                 -max_total_time=600
-        DEPENDS build_fuzzer
+        DEPENDS fuzz_jsom
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running standard fuzz test (10 minutes)"
     )
@@ -426,11 +540,11 @@ if(CLANG_PLUS_PLUS)
     # Long fuzzing (1 hour)
     add_custom_target(fuzz_long
         COMMAND ${CMAKE_COMMAND} -E make_directory corpus
-        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/fuzz_jsom corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
+        COMMAND $<TARGET_FILE:fuzz_jsom> corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds
                 -dict=${CMAKE_CURRENT_SOURCE_DIR}/fuzz/jsom.dict
                 -artifact_prefix=corpus/
                 -max_total_time=3600
-        DEPENDS build_fuzzer
+        DEPENDS fuzz_jsom
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running extended fuzz test (1 hour)"
     )
@@ -438,7 +552,7 @@ if(CLANG_PLUS_PLUS)
     message(STATUS "Fuzzing available - use 'make fuzz' for 10-minute test, 'make fuzz_long' for 1-hour test")
 else()
     add_custom_target(fuzz
-        COMMAND ${CMAKE_COMMAND} -E echo "clang++ not found - install for fuzzing support"
+        COMMAND ${CMAKE_COMMAND} -E echo "fuzzing disabled - configure with -DJSOM_BUILD_FUZZING=ON (needs clang and JSONFuzz)"
     )
 endif()
 
@@ -527,7 +641,8 @@ target_include_directories(jsom PRIVATE
 # Warnings as errors for JSOM's OWN targets only (CODING_STANDARDS.md rule 11).
 # Fetched dependencies (googletest, benchmark, nlohmann_json) keep their own
 # flags — never apply -Werror to them.
-foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks thread_safety_probe)
+foreach(jsom_target jsom_lib jsom jsom_tests jsom_benchmarks thread_safety_probe
+        jsom_jsonfuzz_adapter jsom_fuzz_obj fuzz_jsom jsom_fuzz_tests)
     if(TARGET ${jsom_target})
         target_compile_options(${jsom_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
