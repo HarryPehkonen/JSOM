@@ -1,4 +1,4 @@
-// RFC 8259 section 6 is enforced BY DEFAULT in 4.0.0. The malformed forms below are the
+// RFC 8259 section 6 is enforced BY DEFAULT in 3.1.0. The malformed forms below are the
 // conformance suite's n_number_* cases (plus n_array_just_minus), which used to be
 // accepted as extensions and are now rejected with "Invalid number: ...".
 //

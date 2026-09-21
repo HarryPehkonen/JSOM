@@ -258,7 +258,7 @@ bool drive(const std::string& input, const jsom::JsonParseOptions& options, bool
 
 /// The configurations, all of them, on every input (Harri, 2026-09-16: "fuzz ALL
 /// configurations to find bugs"). The default enforces the RFC 8259 number grammar
-/// (4.0.0 flipped this), and `Loose` is the extension mode that accepts `01`, `1.`,
+/// (3.1.0 flipped this), and `Loose` is the extension mode that accepts `01`, `1.`,
 /// `1eE2` — so both the strict rejection paths and the lenient acceptance paths run.
 std::vector<jsom::JsonParseOptions> configurations() {
     jsom::JsonParseOptions loose;
