@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(JSOM VERSION 3.1.0 LANGUAGES CXX)
+project(JSOM VERSION 3.1.1 LANGUAGES CXX)
 
 # ================================
 # Version — single source of truth

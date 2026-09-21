@@ -135,7 +135,8 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 
 ### Key Design Patterns
 
-**Lazy Evaluation**: Numbers stored as strings until accessed, preserving original format for round-trip fidelity
+**Lazy Conversion** (not lazy validation): number text is kept until a value is asked for, so
+the original format survives round trips — but the §6 grammar was already checked while scanning
 
 **Pure Navigation**: Path lookups read the document directly — no cache between the caller
 and the data, so a lookup cannot go stale and const reads stay thread-safe. A three-level
