@@ -72,7 +72,7 @@ CI_FUZZ_JSONFUZZ_DIR=${CI_FUZZ_JSONFUZZ_DIR:-}   # offline override for the JSON
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests consumer asan fuzz tsan std cli conform tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine"}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -117,6 +117,10 @@ Stages:
   cli         the `jsom` binary: exit codes, validation, pointer ops, bad flags
   coverage    line coverage of the library (gcov); opt-in, reports but never fails
   conform     RFC 8259 suite: asserts the default verdict (n_ 188/188), reports loose
+  docs        documentation vs the code: no references to APIs that were deleted (the
+              opt-in number switch, the path cache, the streaming parser) and the generated
+              tables in FORMATTING.md match JsonFormatOptions / FormatPresets, verified by
+              tools/check_docs.py (--write regenerates the tables)
   tidy        clang-tidy against CI_TIDY_BASELINE (no NEW findings). Findings compare
               line-blind and clone-blind — capture the baseline with
               --write-tidy-baseline, never by hand (see .ci.env.example)
@@ -459,6 +463,14 @@ stage_conform() {
     "$CI_BUILD_DIR/jsom_conformance" --validation=loose 2>&1 | grep -E "n_ must reject" \
         | sed 's/^/      loose mode:   /' || true
     ci_pass conform
+}
+
+stage_docs() {
+    ci_begin "docs (no retired identifiers; generated tables match the code)"
+    python3 "$REPO_ROOT/tools/check_docs.py" > "$CI_LOG_DIR/docs.log" 2>&1 \
+        || ci_fail docs "the documentation has drifted from the code" "$CI_LOG_DIR/docs.log"
+    tail -n 1 "$CI_LOG_DIR/docs.log" | sed 's/^/      /'
+    ci_pass docs
 }
 
 stage_tidy() {

@@ -15,12 +15,12 @@ The API reflects this consistently:
 
 ---
 
-A fast, modern C++17 library for working with JSON data in memory. Features lazy evaluation, RFC 6901 JSON Pointer support, and intelligent formatting. Fully compatible with C++20, C++23, and beyond.
+A fast, modern C++17 library for working with JSON data in memory. Features format-preserving numbers, RFC 6901 JSON Pointer support, and intelligent formatting. Fully compatible with C++20, C++23, and beyond.
 
 ## Features
 
-- **Lazy number parsing** - 2x performance improvement for number-heavy JSON
-- **RFC 6901 JSON Pointers** - Full standard compliance with path caching optimization
+- **Format-preserving numbers** - number text is kept verbatim for byte-exact round trips, and values convert on demand; the RFC 8259 §6 grammar is enforced as the scan passes over them
+- **RFC 6901 JSON Pointers** - Full standard compliance, reading the document directly
 - **Intelligent formatting** - Multiple presets for different use cases (compact, pretty, config, API, debug)
 - **Memory efficient** - Optimized allocation patterns, ~50% reduction vs naive double-buffering
 - **Modern C++** - Safe, clean C++17 implementation using std::variant and RAII, compatible with C++20+
@@ -35,9 +35,9 @@ A fast, modern C++17 library for working with JSON data in memory. Features lazy
 ## Performance
 
 JSOM achieves significant performance improvements through:
-- **Lazy number evaluation** - Numbers parsed on-demand, preserving format
+- **Numbers kept as text** - converted on demand, so `1.500` and `1e10` serialize back byte-for-byte
 - **Direct construction parsing** - Eliminates intermediate allocations (22% allocation overhead eliminated)
-- **Path prefix caching** - Intelligent caching for related JSON Pointer operations
+- **No hidden state in lookups** - navigation reads the document directly (a three-level path cache was measured a net loss and removed; see `OPTIMIZATIONS.md`)
 - **Move semantics** - Optimal C++17 move operations throughout
 
 Benchmark results show 2.01x performance improvement over baseline with full functionality preserved.
@@ -125,7 +125,7 @@ tools/ci.sh --list                     # what the stages are
 | hook | runs | cost |
 |---|---|---|
 | `pre-commit` | `build tests` | ~15 s |
-| `pre-push` | `tree format build tests asan fuzz tsan std conform tidy pristine` | ~2–5 min |
+| `pre-push` | `tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine` | ~2–5 min |
 
 Stages beyond the obvious ones: **`tsan`** builds `tests/thread_safety_probe.cpp` with
 ThreadSanitizer and hammers one const document from four threads (~6 s — reading a

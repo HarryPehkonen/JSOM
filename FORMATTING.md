@@ -8,30 +8,48 @@ JSOM's formatting system centers around the `JsonFormatOptions` structure, which
 
 ## Core Formatting Options
 
-### Basic Controls
+Every option lives in `JsonFormatOptions`. The defaults below are generated from the
+struct's initialisers, so they cannot drift from the code (`tools/check_docs.py` fails if
+they do).
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `pretty` | bool | false | Enable pretty printing with indentation and spacing |
-| `indent_size` | int | 2 | Number of spaces per indentation level |
-| `sort_keys` | bool | false | Sort object keys alphabetically |
+<!-- BEGIN GENERATED: options — tools/check_docs.py --write -->
+| option | type | default |
+|---|---|---|
+| `indent_size` | std::optional<int> | 2 |
+| `sort_keys` | bool | off |
+| `max_inline_array_size` | int | 10 |
+| `max_inline_object_size` | int | 3 |
+| `max_inline_string_length` | int | 40 |
+| `max_line_width` | int | 120 |
+| `align_values` | bool | off |
+| `colon_spacing` | int | 1 |
+| `bracket_spacing` | bool | off |
+| `quote_keys` | bool | on |
+| `trailing_comma` | bool | off |
+| `escape_unicode` | bool | off |
+| `intelligent_wrapping` | bool | off |
+| `max_depth` | int | 256 |
+<!-- END GENERATED: options -->
 
-### Smart Inlining Controls
+What each option does:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `max_inline_array_size` | int | 10 | Arrays with ≤ N elements stay on one line |
-| `max_inline_object_size` | int | 3 | Objects with ≤ N properties stay on one line |
-| `max_inline_string_length` | int | 40 | Strings ≤ length don't break structure |
-
-### Advanced Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `quote_keys` | bool | true | Quote object keys (JSON standard) |
-| `trailing_comma` | bool | false | Add trailing commas (non-standard) |
-| `escape_unicode` | bool | false | Escape non-ASCII characters as \uXXXX |
-| `max_depth` | int | 100 | Maximum nesting depth allowed |
+- `indent_size` — spaces per level; `none` writes everything on one line
+- `sort_keys` — sort object keys alphabetically
+- `max_inline_array_size`, `max_inline_object_size`, `max_inline_string_length` — how small a
+  container (and its strings) must be to stay on one line. A container that HOLDS a container
+  goes multiline regardless, and the inner container then follows its own rule
+- `max_line_width` — characters per line before wrapping; 0 disables the limit
+- `align_values` — pad keys so the values line up in a column (multiline objects)
+- `colon_spacing` — spaces around `:` (0, 1 or 2)
+- `bracket_spacing` — padding inside `[ ]` and `{ }`
+- `quote_keys` — quote object keys; `false` emits non-standard JSON
+- `trailing_comma` — trailing commas in multiline output; non-standard JSON
+- `escape_unicode` — write non-ASCII as `\uXXXX`, escaping the CODEPOINT (an astral character
+  becomes a surrogate pair). Control characters are escaped whatever this says, because a raw
+  control character is not valid JSON
+- `intelligent_wrapping` — pack multiple simple values per line instead of one per line
+- `max_depth` — nesting accepted while formatting; deeper input is rejected with
+  "Maximum formatting depth exceeded"
 
 ## Predefined Format Presets
 
@@ -43,7 +61,6 @@ jsom::FormatPresets::Compact
 ```
 - **Use case**: Minimal bandwidth, storage efficiency
 - **Characteristics**: No whitespace, everything on one line
-- **Settings**: `pretty = false`
 
 ### 2. Pretty
 ```cpp
@@ -51,7 +68,6 @@ jsom::FormatPresets::Pretty
 ```
 - **Use case**: General-purpose readable formatting
 - **Characteristics**: Smart inlining with balanced readability
-- **Settings**: `pretty = true`, `indent_size = 2`, `max_inline_array_size = 10`, `max_inline_object_size = 3`
 
 ### 3. Config
 ```cpp
@@ -59,7 +75,6 @@ jsom::FormatPresets::Config
 ```
 - **Use case**: Configuration files, settings
 - **Characteristics**: Conservative inlining, sorted keys
-- **Settings**: `pretty = true`, `sort_keys = true`, `max_inline_array_size = 5`, `max_inline_object_size = 1`
 
 ### 4. Api
 ```cpp
@@ -67,7 +82,6 @@ jsom::FormatPresets::Api
 ```
 - **Use case**: API responses, data interchange
 - **Characteristics**: Balanced compactness and readability
-- **Settings**: `pretty = true`, `max_inline_array_size = 20`, `max_inline_object_size = 5`
 
 ### 5. Debug
 ```cpp
@@ -75,12 +89,24 @@ jsom::FormatPresets::Debug
 ```
 - **Use case**: Debugging, development, maximum readability
 - **Characteristics**: Every element on separate line, unicode escaping
-- **Settings**: `pretty = true`, `indent_size = 4`, `sort_keys = true`, `max_inline_array_size = 1`, `max_inline_object_size = 0`, `escape_unicode = true`
+
+The numbers behind those presets come from `FormatPresets` itself:
+
+<!-- BEGIN GENERATED: presets — tools/check_docs.py --write -->
+| preset | indent | inline arrays | inline objects | line width | sort keys | align values | colon spacing | bracket spacing | escape unicode | intelligent wrap |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Compact | none | 10 | 3 | 0 (no limit) | off | off | 1 | off | off | off |
+| Pretty | 2 | 8 | 3 | 100 | off | on | 1 | off | off | on |
+| Config | 2 | 5 | 1 | 100 | on | on | 1 | off | off | off |
+| Api | 2 | 15 | 4 | 120 | off | off | 1 | on | off | on |
+| Debug | 4 | 1 | 0 | 80 | on | on | 1 | on | on | off |
+<!-- END GENERATED: presets -->
 
 ## Formatting Examples
 
 Let's use this sample JSON data for all examples:
 
+<!-- BEGIN GENERATED: sample — tools/check_docs.py --write -->
 ```json
 {
   "user": "john_doe",
@@ -101,6 +127,7 @@ Let's use this sample JSON data for all examples:
   }
 }
 ```
+<!-- END GENERATED: sample -->
 
 ### Compact Format
 
@@ -109,9 +136,11 @@ doc.to_json(jsom::FormatPresets::Compact)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-compact — tools/check_docs.py --write -->
 ```json
-{"metadata":{"created":"2024-01-15","updated":"2024-01-20"},"profile":{"age":30,"email":"john@example.com","name":"John Doe"},"scores":[95,87,92,88,91,89,94,86,93,90,85,96],"settings":{"notifications":true,"theme":"dark"},"tags":["developer","javascript","json"],"user":"john_doe"}
+{"metadata": {"created": "2024-01-15", "updated": "2024-01-20"}, "profile": {"age": 30, "email": "john@example.com", "name": "John Doe"}, "scores": [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96], "settings": {"notifications": true, "theme": "dark"}, "tags": ["developer", "javascript", "json"], "user": "john_doe"}
 ```
+<!-- END GENERATED: example-compact -->
 
 ### Pretty Format (Smart Inlining)
 
@@ -120,22 +149,24 @@ doc.to_json(jsom::FormatPresets::Pretty)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-pretty — tools/check_docs.py --write -->
 ```json
 {
   "metadata": {"created": "2024-01-15", "updated": "2024-01-20"},
-  "profile": {
-    "age": 30,
-    "email": "john@example.com",
-    "name": "John Doe"
-  },
-  "scores": [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96],
+  "profile" : {"age": 30, "email": "john@example.com", "name": "John Doe"},
+  "scores"  : [
+    95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96
+  ],
   "settings": {"notifications": true, "theme": "dark"},
-  "tags": ["developer", "javascript", "json"],
-  "user": "john_doe"
+  "tags"    : ["developer", "javascript", "json"],
+  "user"    : "john_doe"
 }
 ```
+<!-- END GENERATED: example-pretty -->
 
-**Note:** Small objects like `metadata` and `settings` stay inline because they have ≤ 3 properties. The `scores` array stays inline because it has ≤ 10 elements. The `profile` object becomes multiline because it exceeds the 3-property limit.
+**Note:** the small objects (`metadata`, `settings`, `profile`) stay inline while the twelve-element
+`scores` array wraps across lines. The per-preset inline limits are in the table above — this
+page does not restate them, so they cannot disagree with the code.
 
 ### Config Format (Conservative)
 
@@ -144,28 +175,44 @@ doc.to_json(jsom::FormatPresets::Config)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-config — tools/check_docs.py --write -->
 ```json
 {
   "metadata": {
     "created": "2024-01-15",
     "updated": "2024-01-20"
   },
-  "profile": {
-    "age": 30,
+  "profile" : {
+    "age"  : 30,
     "email": "john@example.com",
-    "name": "John Doe"
+    "name" : "John Doe"
   },
-  "scores": [95, 87, 92, 88, 91],
+  "scores"  : [
+    95,
+    87,
+    92,
+    88,
+    91,
+    89,
+    94,
+    86,
+    93,
+    90,
+    85,
+    96
+  ],
   "settings": {
     "notifications": true,
-    "theme": "dark"
+    "theme"        : "dark"
   },
-  "tags": ["developer", "javascript", "json"],
-  "user": "john_doe"
+  "tags"    : ["developer", "javascript", "json"],
+  "user"    : "john_doe"
 }
 ```
+<!-- END GENERATED: example-config -->
 
-**Note:** More conservative inlining - only objects with 1 property stay inline, and arrays with ≤ 5 elements. Keys are sorted alphabetically.
+**Note:** a smaller inline budget than Pretty for both arrays and objects — conservative inlining —
+with keys sorted alphabetically.
 
 ### API Format (Balanced)
 
@@ -174,18 +221,21 @@ doc.to_json(jsom::FormatPresets::Api)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-api — tools/check_docs.py --write -->
 ```json
 {
-  "metadata": {"created": "2024-01-15", "updated": "2024-01-20"},
-  "profile": {"age": 30, "email": "john@example.com", "name": "John Doe"},
-  "scores": [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96],
-  "settings": {"notifications": true, "theme": "dark"},
-  "tags": ["developer", "javascript", "json"],
+  "metadata": { "created": "2024-01-15", "updated": "2024-01-20" },
+  "profile": { "age": 30, "email": "john@example.com", "name": "John Doe" },
+  "scores": [ 95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96 ],
+  "settings": { "notifications": true, "theme": "dark" },
+  "tags": [ "developer", "javascript", "json" ],
   "user": "john_doe"
 }
 ```
+<!-- END GENERATED: example-api -->
 
-**Note:** More aggressive inlining - objects with ≤ 5 properties and arrays with ≤ 20 elements stay inline, optimizing for API response compactness while maintaining readability.
+**Note:** a larger inline budget than Pretty, so more arrays and objects stay on one line — aimed at
+API responses, where compactness and readability are both wanted.
 
 ### Debug Format (Maximum Readability)
 
@@ -194,18 +244,19 @@ doc.to_json(jsom::FormatPresets::Debug)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-debug — tools/check_docs.py --write -->
 ```json
 {
     "metadata": {
         "created": "2024-01-15",
         "updated": "2024-01-20"
     },
-    "profile": {
-        "age": 30,
+    "profile" : {
+        "age"  : 30,
         "email": "john@example.com",
-        "name": "John Doe"
+        "name" : "John Doe"
     },
-    "scores": [
+    "scores"  : [
         95,
         87,
         92,
@@ -221,16 +272,17 @@ doc.to_json(jsom::FormatPresets::Debug)
     ],
     "settings": {
         "notifications": true,
-        "theme": "dark"
+        "theme"        : "dark"
     },
-    "tags": [
+    "tags"    : [
         "developer",
         "javascript",
         "json"
     ],
-    "user": "john_doe"
+    "user"    : "john_doe"
 }
 ```
+<!-- END GENERATED: example-debug -->
 
 **Note:** 4-space indentation, every array element and object property on separate lines, keys sorted alphabetically.
 
@@ -249,25 +301,31 @@ doc.to_json(custom)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-indent — tools/check_docs.py --write -->
 ```json
 {
-        "metadata": {"created": "2024-01-15", "updated": "2024-01-20"},
-        "profile": {
-                "age": 30,
-                "email": "john@example.com",
-                "name": "John Doe"
-        },
-        "scores": [
-                95, 87, 92,
-                88, 91, 89,
-                94, 86, 93,
-                90, 85, 96
-        ],
-        "settings": {"notifications": true, "theme": "dark"},
-        "tags": ["developer", "javascript", "json"],
-        "user": "john_doe"
+    "metadata": {"created": "2024-01-15", "updated": "2024-01-20"},
+    "profile": {"age": 30, "email": "john@example.com", "name": "John Doe"},
+    "scores": [
+        95,
+        87,
+        92,
+        88,
+        91,
+        89,
+        94,
+        86,
+        93,
+        90,
+        85,
+        96
+    ],
+    "settings": {"notifications": true, "theme": "dark"},
+    "tags": ["developer", "javascript", "json"],
+    "user": "john_doe"
 }
 ```
+<!-- END GENERATED: example-indent -->
 
 ### Example 2: Ultra-Compact Arrays
 
@@ -281,26 +339,28 @@ doc.to_json(custom)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-ultra-compact — tools/check_docs.py --write -->
 ```json
 {
   "metadata": {
     "created": "2024-01-15",
     "updated": "2024-01-20"
   },
-  "profile": {
-    "age": 30,
+  "profile" : {
+    "age"  : 30,
     "email": "john@example.com",
-    "name": "John Doe"
+    "name" : "John Doe"
   },
-  "scores": [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96],
+  "scores"  : [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96],
   "settings": {
     "notifications": true,
-    "theme": "dark"
+    "theme"        : "dark"
   },
-  "tags": ["developer", "javascript", "json"],
-  "user": "john_doe"
+  "tags"    : ["developer", "javascript", "json"],
+  "user"    : "john_doe"
 }
 ```
+<!-- END GENERATED: example-ultra-compact -->
 
 ### Example 3: Extreme Verbosity
 
@@ -316,43 +376,32 @@ doc.to_json(custom)
 ```
 
 **Output:**
+<!-- BEGIN GENERATED: example-verbose — tools/check_docs.py --write -->
 ```json
 {
-    "metadata": {
-        "created": "2024-01-15",
-        "updated": "2024-01-20"
-    },
-    "profile": {
-        "age": 30,
-        "email": "john@example.com",
-        "name": "John Doe"
-    },
-    "scores": [
-        95,
-        87,
-        92,
-        88,
-        91,
-        89,
-        94,
-        86,
-        93,
-        90,
-        85,
-        96
-    ],
-    "settings": {
-        "notifications": true,
-        "theme": "dark"
-    },
-    "tags": [
-        "developer",
-        "javascript",
-        "json"
-    ],
-    "user": "john_doe"
+  "metadata": {
+    "created": "2024-01-15",
+    "updated": "2024-01-20"
+  },
+  "profile" : {
+    "age"  : 30,
+    "email": "john@example.com",
+    "name" : "John Doe"
+  },
+  "scores"  : [
+    95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96
+  ],
+  "settings": {
+    "notifications": true,
+    "theme"        : "dark"
+  },
+  "tags"    : [
+    "developer", "javascript", "json"
+  ],
+  "user"    : "john_doe"
 }
 ```
+<!-- END GENERATED: example-verbose -->
 
 ## Smart Inlining Logic
 

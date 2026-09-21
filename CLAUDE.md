@@ -65,8 +65,7 @@ cmake --build build --target validation
 
 ### Local CI (the gates, run by the hooks)
 
-`tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format build tests asan
-fuzz tsan std cli conform tidy pristine`, and `coverage` on request); `.githooks/pre-commit`
+`tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine`, and `coverage` on request); `.githooks/pre-commit`
 runs `build tests`, and
 `.githooks/pre-push` runs the full set and additionally requires a clean worktree. Enable
 once per clone with `git config core.hooksPath .githooks`. Per-machine settings live in
@@ -103,7 +102,9 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 **JsonDocument** (`include/jsom/json_document.hpp`):
 - Central document class using `std::variant` for type-safe value storage
 - Implicit construction from primitives (`int`, `double`, `bool`, `string`, `const char*`, `nullptr`)
-- Lazy number parsing via `LazyNumber` class preserves original format
+- Numbers are kept as text (`LazyNumber`) so the original format survives and conversion is
+  on demand — laziness is about CONVERSION, not validation: the RFC 8259 §6 grammar is
+  enforced during the scan
 - Iteration: `begin()`/`end()` for arrays, `items()` for objects (structured bindings), `keys()`
 - Full comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`) with deep structural comparison
 - Built-in JSON Pointer navigation (RFC 6901), reading the document directly

@@ -408,7 +408,7 @@ What deleting it removed, beyond the perf loss:
   `doc.at(p)` on a shared const document wrote to it. TSan on four threads reading one
   document reported **71 data races and then a SEGV inside `memmove`**; after removal the
   same test is clean, and `thread_safety_probe` now gates it in ~6 s.
-- a **raw owning pointer** (`new PathCache()` / `delete path_cache_`) — against the repo's
+- a **raw owning pointer** (the deleted cache did `new PathCache()` / `delete path_cache_`) — against the repo's
   own rule 5 — plus a process-global `s_mutation_epoch_` that every mutation bumped, and
   cached raw pointers into document storage that could dangle when a child vector grew.
 - wall-clock eviction (`steady_clock`, `MAX_PREFIX_AGE_MINUTES`) inside a core data

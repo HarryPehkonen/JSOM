@@ -201,7 +201,7 @@ add_executable(jsom_tests
     # Nesting-depth limit tests (RFC 8259 §9 resource limits)
     tests/test_nesting_limits.cpp        # no input may exhaust the stack
 
-    # Opt-in number validation tests
+    # Number grammar tests: §6 enforcement by default, and the loose-numbers option
     tests/test_number_grammar.cpp        # section 6 enforced by default
     tests/test_number_loose.cpp          # the loose-numbers extension switch
 

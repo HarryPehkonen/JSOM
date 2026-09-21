@@ -1,0 +1,18 @@
+{
+  "user": "john_doe",
+  "profile": {
+    "name": "John Doe",
+    "age": 30,
+    "email": "john@example.com"
+  },
+  "settings": {
+    "theme": "dark",
+    "notifications": true
+  },
+  "tags": ["developer", "javascript", "json"],
+  "scores": [95, 87, 92, 88, 91, 89, 94, 86, 93, 90, 85, 96],
+  "metadata": {
+    "created": "2024-01-15",
+    "updated": "2024-01-20"
+  }
+}

@@ -43,6 +43,6 @@ if [ "$only_tags" -eq 1 ] && [ "$unpublished" -eq 0 ]; then
     exit 0
 fi
 
-exec "$(git rev-parse --show-toplevel)/tools/ci.sh" \
-    --require-clean \
-    tree format kitprobes build tests consumer asan fuzz tsan std cli conform tidy pristine
+# No stage list here on purpose: the default set lives in tools/ci.sh alone, so adding a
+# stage does not need this hook edited too.
+exec "$(git rev-parse --show-toplevel)/tools/ci.sh" --require-clean
