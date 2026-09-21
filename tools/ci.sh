@@ -455,8 +455,9 @@ stage_conform() {
     fi
     grep -E "y_ must accept|n_ must reject" "$CI_LOG_DIR/conform.log" | sed 's/^/      /'
     # Loose mode is reported, not asserted: it is the documented extension mode, and the
-    # number cases are expected to disagree there.
-    "$CI_BUILD_DIR/jsom_conformance" 2>&1 | grep -E "n_ must reject" | sed 's/^/      default mode: /'
+    # number cases are EXPECTED to disagree there, so a non-zero exit is not a failure.
+    "$CI_BUILD_DIR/jsom_conformance" --validation=loose 2>&1 | grep -E "n_ must reject" \
+        | sed 's/^/      loose mode:   /' || true
     ci_pass conform
 }
 
