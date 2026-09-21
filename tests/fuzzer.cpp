@@ -166,9 +166,18 @@ ReachGuard g_reach;
 /// The round-trip oracle: what we serialize must parse back to the same document.
 /// A wrong answer never crashes, so this has to be asserted explicitly. Runs OUTSIDE
 /// every catch: a throw here is a failure, not "expected for invalid input".
-void assert_round_trip(const jsom::JsonDocument& doc, const std::string& input) {
+///
+/// The re-parse uses the SAME options as the parse that accepted the document. Under the
+/// default configuration that is the whole promise — RFC 8259 in, RFC 8259 out, byte
+/// identical. Loose mode can hold number text that is not JSON (`1.0.` is exactly what it
+/// is for), so its round trip is promised within loose mode; re-reading it strictly is
+/// *supposed* to fail, and asserting otherwise asserts the wrong thing. (This stage found
+/// that on 2026-09-20: `1.0.` was accepted loosely, written back faithfully, and then
+/// terminated the harness — whose re-parse had silently used the default options.)
+void assert_round_trip(const jsom::JsonDocument& doc, const std::string& input,
+                       const jsom::JsonParseOptions& options) {
     const std::string output = doc.to_json();
-    const auto reparsed = jsom::parse_document(output);
+    const auto reparsed = jsom::parse_document(output, options);
     if (!(reparsed == doc)) {
         std::cerr << "ROUND-TRIP MISMATCH\n  in:  " << input << "\n  out: " << output << "\n";
         std::abort();
@@ -189,7 +198,7 @@ bool drive(const std::string& input, const jsom::JsonParseOptions& options, bool
     }
 
     // The property runs OUTSIDE every catch.
-    assert_round_trip(doc, input);
+    assert_round_trip(doc, input, options);
     if (!explore) {
         return true;
     }
@@ -248,13 +257,13 @@ bool drive(const std::string& input, const jsom::JsonParseOptions& options, bool
 }
 
 /// The configurations, all of them, on every input (Harri, 2026-09-16: "fuzz ALL
-/// configurations to find bugs"). `Lazy` is the default that ships — numbers keep the
-/// extension behaviour, the lexer rules are unconditional — and `All` adds the spec's
-/// number grammar, which is where the strict rejection paths live.
+/// configurations to find bugs"). The default enforces the RFC 8259 number grammar
+/// (4.0.0 flipped this), and `Loose` is the extension mode that accepts `01`, `1.`,
+/// `1eE2` — so both the strict rejection paths and the lenient acceptance paths run.
 std::vector<jsom::JsonParseOptions> configurations() {
-    jsom::JsonParseOptions strict_all;
-    strict_all.validate_numbers = true;
-    return {jsom::JsonParseOptions{}, strict_all};
+    jsom::JsonParseOptions loose;
+    loose.allow_loose_numbers = true;
+    return {jsom::JsonParseOptions{}, loose};
 }
 
 // A deterministic seed for the mutator, derived from the input so the same bytes give

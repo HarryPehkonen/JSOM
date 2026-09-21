@@ -239,8 +239,9 @@ CUSTOM OPTIONS:
     --intelligent-wrap  Enable intelligent array wrapping (multiple elements per line)
     --no-intelligent-wrap  Disable intelligent array wrapping
     --comments          Allow // and /* */ comments in input
-    --validation=lazy|numbers
-                        'numbers' also enforces the RFC 8259 number grammar
+    --validation=numbers|loose
+                        'numbers' (the default) enforces the RFC 8259 grammar;
+                        'loose' accepts non-JSON number forms as extensions
                         (escapes, control characters and whitespace are always validated)
 
 INSPECTION:
@@ -348,25 +349,26 @@ EXAMPLES:
     }
 }
 
-/// Maps `--validation=<value>` onto the parse options. The lexical rules (escapes,
-/// control characters, whitespace) are enforced unconditionally, so the only thing the
-/// value can change is whether the number grammar is checked too:
+/// Maps `--validation=<value>` onto the parse options. The RFC 8259 number grammar is
+/// enforced by default — the scan checks it without a second pass, so being strict is
+/// free — and the lexical rules (escapes, control characters, whitespace) are
+/// unconditional, so the only thing a value can change is number leniency:
 ///
-///     --validation=lazy      the default: numbers keep the extension behaviour
-///     --validation=numbers   enforce the RFC 8259 §6 number grammar as well
+///     --validation=numbers   the default, spelled out: §6 is enforced
+///     --validation=loose     accept non-JSON number forms (01, 1., 1eE2) as extensions
 ///
 /// Returns false (and explains) for anything else.
 auto apply_validation_option(const std::string& value, jsom::JsonParseOptions& options) -> bool {
-    if (value == "lazy") {
-        options.validate_numbers = false;
+    if (value == "numbers") {
+        options.allow_loose_numbers = false;
         return true;
     }
-    if (value == "numbers") {
-        options.validate_numbers = true;
+    if (value == "loose") {
+        options.allow_loose_numbers = true;
         return true;
     }
     std::cerr << "Unknown --validation value: " << value
-              << " (expected 'lazy' or 'numbers'; escapes, control characters and "
+              << " (expected 'numbers' or 'loose'; escapes, control characters and "
                  "whitespace are always validated)\n";
     return false;
 }
@@ -374,7 +376,7 @@ auto apply_validation_option(const std::string& value, jsom::JsonParseOptions& o
 // Validate command
 auto validate_command(const std::vector<std::string>& args) -> int {
     if (args.size() < 3) {
-        std::cerr << "Usage: jsom validate [--comments] [--validation=lazy|numbers] "
+        std::cerr << "Usage: jsom validate [--comments] [--validation=numbers|loose] "
                      "<file1> [file2] ...\n";
         return 1;
     }
@@ -386,12 +388,13 @@ auto validate_command(const std::vector<std::string>& args) -> int {
         const auto& filename = args[i];
         if (filename == "--help") {
             std::cout << "Validate JSON files\n\n";
-            std::cout << "USAGE: jsom validate [--comments] [--validation=lazy|numbers] "
+            std::cout << "USAGE: jsom validate [--comments] [--validation=numbers|loose] "
                          "<file1> [file2] ...\n";
             std::cout << "\nOPTIONS:\n";
             std::cout << "    --comments            Allow // and /* */ comments\n";
-            std::cout << "    --validation=numbers  Also enforce the RFC 8259 number grammar\n";
-            std::cout << "    --validation=lazy     Leave numbers lazy (the default)\n";
+            std::cout
+                << "    --validation=numbers  Enforce the RFC 8259 number grammar (default)\n";
+            std::cout << "    --validation=loose    Accept non-JSON number forms\n";
             std::cout << "\nEscapes, control characters and whitespace are validated always.\n";
             return 0;
         }

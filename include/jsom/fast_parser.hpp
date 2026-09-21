@@ -302,100 +302,126 @@ private:
         return c >= '1' && c <= '9';
     }
 
-    /// RFC 8259 §6 number grammar, applied to the text the scan already collected.
-    /// Only used when JsonParseOptions::validate_numbers is set, because numbers are
-    /// otherwise stored lazily and never inspected (which is why `-01`, `1.0.` and
-    /// `2.e+3` were all accepted — see CONFORMANCE.md Finding 2).
+    // Fast number parsing with bulk scanning
+    /// Is this a character that can only appear inside a number? Used to decide whether a
+    /// character that ended a complete number is stray punctuation (`1,`) or evidence that
+    /// the token itself was malformed (`1+2`).
+    [[nodiscard]] static constexpr auto is_number_only_char(char c) -> bool {
+        return c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-';
+    }
+
+    /// RFC 8259 §6, enforced WHILE scanning. The scan already visits every character, so
+    /// the grammar costs a handful of comparisons and no second traversal — measured
+    /// 0.92x-0.98x against the old permissive scan, i.e. slightly FASTER
+    /// (OPTIMIZATIONS.md, "Number grammar").
     ///
     ///     number = [ minus ] int [ frac ] [ exp ]
     ///     int    = zero / ( digit1-9 *DIGIT )
     ///     frac   = "." 1*DIGIT
     ///     exp    = ("e" / "E") ["+" / "-"] 1*DIGIT
-    [[nodiscard]] static auto is_valid_number(std::string_view text) -> bool {
-        size_t i = 0;
-        const size_t size = text.size();
+    ///
+    /// Tight per-state loops rather than a per-character state switch: digit runs are the
+    /// common case, and they stay one comparison per character.
+    void scan_number_grammar() {
+        const size_t number_start = pos_;
 
-        if (i < size && text[i] == '-') {
-            ++i;
+        if (pos_ < size_ && data_[pos_] == '-') {
+            ++pos_;
         }
 
-        // int: leading zeros are what `-01`, `012` get wrong; `-` alone dies here.
-        if (i >= size) {
-            return false;
-        }
-        if (text[i] == '0') {
-            ++i;
-            if (i < size && is_digit(text[i])) {
-                return false;
-            }
-        } else if (is_digit_1_to_9(text[i])) {
-            while (i < size && is_digit(text[i])) {
-                ++i;
+        // int = zero / ( digit1-9 *DIGIT )
+        const size_t int_start = pos_;
+        if (pos_ < size_ && data_[pos_] == '0') {
+            ++pos_;
+            if (pos_ < size_ && is_digit(data_[pos_])) {
+                throw_invalid_number(number_start); // "-01", "012"
             }
         } else {
-            return false; // covers ".123", "-.123", "+1", "e5"
-        }
-
-        // frac: the dot must be followed by at least one digit ("1." and "2.e3").
-        if (i < size && text[i] == '.') {
-            ++i;
-            const size_t frac_start = i;
-            while (i < size && is_digit(text[i])) {
-                ++i;
-            }
-            if (i == frac_start) {
-                return false;
+            while (pos_ < size_ && is_digit(data_[pos_])) {
+                ++pos_;
             }
         }
+        if (pos_ == int_start) {
+            throw_invalid_number(number_start); // "-", "-.5", "-e1"
+        }
 
-        // exp: same requirement after the sign ("0e", "0e+", "1.0e-", "1eE2").
-        if (i < size && (text[i] == 'e' || text[i] == 'E')) {
-            ++i;
-            if (i < size && (text[i] == '+' || text[i] == '-')) {
-                ++i;
+        // frac = "." 1*DIGIT
+        if (pos_ < size_ && data_[pos_] == '.') {
+            ++pos_;
+            const size_t frac_start = pos_;
+            while (pos_ < size_ && is_digit(data_[pos_])) {
+                ++pos_;
             }
-            const size_t exp_start = i;
-            while (i < size && is_digit(text[i])) {
-                ++i;
-            }
-            if (i == exp_start) {
-                return false;
+            if (pos_ == frac_start) {
+                throw_invalid_number(number_start); // "1.", "2.e3"
             }
         }
 
-        return i == size; // anything left over ("0.1.2", "1+2", "0e+-1") is a rejection
+        // exp = ("e" / "E") ["+" / "-"] 1*DIGIT
+        if (pos_ < size_ && (data_[pos_] == 'e' || data_[pos_] == 'E')) {
+            ++pos_;
+            if (pos_ < size_ && (data_[pos_] == '+' || data_[pos_] == '-')) {
+                ++pos_;
+            }
+            const size_t exp_start = pos_;
+            while (pos_ < size_ && is_digit(data_[pos_])) {
+                ++pos_;
+            }
+            if (pos_ == exp_start) {
+                throw_invalid_number(number_start); // "0e", "1e+", "1eE2"
+            }
+        }
+
+        // A number-only character after a COMPLETE number means the token was malformed
+        // rather than followed by punctuation: `1+2` is one bad number, not `1` then `+2`,
+        // and `1.2.3` is reported whole instead of as a stray '.'.
+        if (pos_ < size_ && is_number_only_char(data_[pos_])) {
+            throw_invalid_number(number_start);
+        }
     }
 
-    // Fast number parsing with bulk scanning
-    auto parse_number() -> JsonDocument {
-        number_buffer_.clear();
-        number_buffer_.reserve(parser_constants::NUMBER_BUFFER_SIZE);
-
-        const char* start = data_ + pos_;
-
-        // Fast scan for number end (direct comparisons — std::isdigit is a
-        // locale-table call per character; OPTIMIZATIONS.md #4)
+    /// The extension scan (JsonParseOptions::allow_loose_numbers): accept any run of
+    /// number-ish characters. RFC 8259 §9 lets a parser accept non-JSON forms; this is the
+    /// documented leniency, and it keeps the tokenizer's view of "1+2" identical to the
+    /// strict path — only the verdict differs.
+    void scan_loose_number() {
         while (pos_ < size_) {
             // NOLINTNEXTLINE(readability-identifier-length)
-            char c = data_[pos_];
-            if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+'
-                || c == '-') {
+            const char c = data_[pos_];
+            if (is_digit(c) || is_number_only_char(c)) {
                 ++pos_;
             } else {
                 break;
             }
         }
+    }
 
-        // Bulk copy the number
-        number_buffer_.assign(start, data_ + pos_ - start);
-
-        // Opt-in grammar check (JsonParseOptions::validate_numbers). The text is still
-        // stored lazily either way, so this costs one pass over the collected digits and
-        // buys nothing to the caller who only re-serializes what it parsed.
-        if (options_.validate_numbers && !is_valid_number(number_buffer_)) {
-            throw std::runtime_error("Invalid number: " + number_buffer_);
+    /// Reject with the whole run of number-ish characters, so the message names the token
+    /// the reader got wrong ("01", "1+2") instead of the character the grammar stopped at.
+    [[noreturn]] void throw_invalid_number(size_t number_start) const {
+        size_t end = pos_;
+        while (end < size_) {
+            // NOLINTNEXTLINE(readability-identifier-length)
+            const char c = data_[end];
+            if (!is_digit(c) && !is_number_only_char(c)) {
+                break;
+            }
+            ++end;
         }
+        throw std::runtime_error("Invalid number: "
+                                 + std::string(data_ + number_start, end - number_start));
+    }
 
+    auto parse_number() -> JsonDocument {
+        const size_t number_start = pos_;
+        if (options_.allow_loose_numbers) {
+            scan_loose_number();
+        } else {
+            scan_number_grammar();
+        }
+        // The text is stored lazily either way: validating never forces conversion, so a
+        // round trip still reproduces the bytes that came in.
+        number_buffer_.assign(data_ + number_start, pos_ - number_start);
         return JsonDocument::from_lazy_number(number_buffer_);
     }
 

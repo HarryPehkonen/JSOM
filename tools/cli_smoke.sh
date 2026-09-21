@@ -62,13 +62,14 @@ check        "validate rejects broken JSON"    1 "$JSOM" validate "$TMP/bad.json
 check        "null is valid JSON"              0 "$JSOM" validate <(printf 'null\n')
 check        "raw control char is rejected"    1 "$JSOM" validate "$TMP/raw_tab.json"
 
-# The number grammar is opt-in: lazy accepts 01, --validation=numbers rejects it.
-check        "lazy mode accepts 01"            0 "$JSOM" validate "$TMP/leading_zero.json"
-check        "numbers mode rejects 01"         1 "$JSOM" validate --validation=numbers "$TMP/leading_zero.json"
+# The number grammar is the default now; --validation=loose is the extension switch.
+check        "default rejects 01"              1 "$JSOM" validate "$TMP/leading_zero.json"
+check        "loose mode accepts 01"           0 "$JSOM" validate --validation=loose "$TMP/leading_zero.json"
+check        "numbers is spelled out"          1 "$JSOM" validate --validation=numbers "$TMP/leading_zero.json"
 check        "unknown validation value fails"  1 "$JSOM" validate --validation=strict "$TMP/good.json"
 
 check        "format exits 0"                  0 "$JSOM" format "$TMP/good.json"
-check        "format --validation=numbers"     0 "$JSOM" format --validation=numbers "$TMP/good.json"
+check        "format --validation=loose"       0 "$JSOM" format --validation=loose "$TMP/good.json"
 check        "format rejects broken JSON"      1 "$JSOM" format "$TMP/bad.json"
 expect_output "format output is JSON"         '^\{' "$JSOM" format "$TMP/good.json"
 

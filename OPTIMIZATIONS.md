@@ -314,29 +314,37 @@ by `NestingLimitTest.EmptyContainersDoNotConsumeTheNestingBudget`.
 
 ---
 
-## Number validation (2026-09-16) — what strictness costs
+## Number grammar (2026-09-20) — enforcing §6 is free, and slightly faster
 
-`JsonParseOptions::validate_numbers` (default **off**, `ParsePresets::Validate` turns it on)
-checks the RFC 8259 §6 number grammar over the text the scan already collected. Measured
-on a Release build, 5 rounds per case reporting the best, two builds compiled from the
-same probe and run in the same session:
+The RFC 8259 §6 number grammar is checked **inside the scan**, with no second pass over the
+collected text. That is what retired the opt-in switch: the old design paid for strictness
+with a second traversal (~1 ns per digit), which made being strict a cost decision. Checking
+where the parser already is costs a handful of comparisons.
 
-| input | default (lazy) | validation on | delta |
+Interleaved A/B (both binaries built from the same probe, alternating rounds, median of 5),
+Release, `-O3 -march=native`:
+
+| input | before (permissive scan) | after (grammar in-scan) | ratio |
 |---|---|---|---|
-| 2,000 short numbers (`123.45e3`) | 0.240 ms | 0.255 ms | **+6%** |
-| 1,000 × 17-digit numbers with exponents | 0.115 ms | 0.129 ms | **+12%** |
-| 1,000 realistic mixed records | 1.37 ms | 1.38 ms | **+0.5%** |
+| 2,000 short numbers (`123.45e3`) | 0.2005 ms | 0.1963 ms | **0.98x** |
+| 1,000 × 17-digit numbers with exponents | 0.1100 ms | 0.1015 ms | **0.92x** |
+| 1,000 realistic mixed records | 1.0772 ms | 1.0451 ms | **0.97x** |
 
-Two things worth reading off that: the cost is proportional to *number text length*
-(~1 ns per digit — it is a second pass over the collected bytes), and it disappears in
-realistic payloads because numbers are a small fraction of the work. Turning validation
-on for a document that is 100% digits costs about a tenth of what the parse itself costs
-per number.
+For reference, the old "validation on" mode measured 0.2174 / 0.1291 / 1.0908 ms on the
+same probe, so checked parsing is now 0.79x-0.96x of what strictness used to cost.
 
-The cost of the *switch itself* on the default path is a predictable branch per number:
-0.2374 → 0.2403 ms on the short-number case (+1.2%), within noise on the other two.
-Number-heavy benchmarks are the worst case for reading that off — for a mixed payload
-the branch is invisible.
+Why it got *faster* rather than slower — two effects pulling the same way:
+
+1. The second pass is gone: the old path collected the token, then walked it again.
+2. The scan is now tight per-state loops instead of one 6-way per-character test, so a run
+   of digits — the common case — costs one comparison per character.
+
+A malformed token is reported whole: a number-only character after a complete number means
+the *token* was bad (`1+2` -> `Invalid number: 1+2`), not that punctuation followed a number.
+
+Loose mode (`JsonParseOptions::allow_loose_numbers`) keeps the permissive scan, so the
+extension survives at its original speed. The tokenizer sees the same token either way;
+only the verdict differs.
 
 ---
 

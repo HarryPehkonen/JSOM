@@ -9,7 +9,7 @@ jsonfuzz::ParseResult JsonomSut::parse(std::string_view text, const jsonfuzz::Pa
     jsom::JsonParseOptions opts;
     opts.allow_comments = config.allow_comments;
     opts.convert_unicode_escapes = config.unicode_escapes;
-    opts.validate_numbers = config.strict_numbers;
+    opts.allow_loose_numbers = !config.strict_numbers;
     opts.max_depth = config.max_depth;
     try {
         doc_ = jsom::parse_document(std::string(text), opts);

@@ -117,9 +117,9 @@ JSOM is a high-performance C++17 JSON parser with RFC 6901 JSON Pointer support 
 - `find_multiple()` for batches; path introspection (`list_paths`, `find_paths`, `count_paths`)
 
 **Parsing System** (`include/jsom/fast_parser.hpp`, `parse_document.hpp`):
-- `FastParser`: the only parser — direct-construction recursive-descent, with optional comment support and the RFC 8259 lexical rules always enforced
+- `FastParser`: the only parser — direct-construction recursive-descent, with optional comment support and the RFC 8259 lexical rules AND number grammar always enforced (the grammar is checked inside the scan, which measured *faster* than not checking it)
 - `parse_document.hpp`: the `parse_document()` entry points (default and with options)
-- `JsonParseOptions`: Unicode escape handling (`convert_unicode_escapes`), comment tolerance (`allow_comments`), resource limits (`max_depth`) and the opt-in number grammar (`validate_numbers`)
+- `JsonParseOptions`: Unicode escape handling (`convert_unicode_escapes`), comment tolerance (`allow_comments`), resource limits (`max_depth`) and the loose-number extension switch (`allow_loose_numbers`, off by default — the §6 grammar is enforced in the scan)
 - Version: `project(JSOM VERSION ...)` in `CMakeLists.txt` is the single source; CMake generates `<jsom/version.hpp>` (`JSOM_VERSION`). Never hard-code a version anywhere else.
 
 **Formatting System** (`include/jsom/json_formatter.hpp`, `json_format_options.hpp`, `utf8.hpp`):

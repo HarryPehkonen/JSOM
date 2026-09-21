@@ -34,23 +34,18 @@ struct JsonParseOptions {
     /// those operations will then refuse. Lowering is the supported direction.
     int max_depth = limits::MAX_NESTING_DEPTH;
 
-    /// Validate numbers against the RFC 8259 grammar while scanning, rejecting `-01`,
-    /// `1.0.`, `2.e+3`, `0e+`, `[-]` and friends with "Invalid number: …".
+    /// Accept number forms that are NOT valid JSON — `01`, `1.`, `-.5`, `1eE2`, `1+2`.
     ///
-    /// Off by default, deliberately, and it is a policy rather than an oversight: with
-    /// validation off JSOM accepts those forms as *extensions* (RFC 8259 §9 allows a
-    /// parser to accept non-JSON forms), which is what the conformance suite's 25
-    /// `n_number_*` disagreements are. Speed is the reason the default is off — see the
-    /// measurement in OPTIMIZATIONS.md.
+    /// Off by default: RFC 8259 §6 is enforced while scanning, so an input that is not
+    /// JSON is not reported as JSON. On, it is the documented extension mode of §9 —
+    /// useful for hand-edited configs and producers you cannot change (spreadsheets,
+    /// internal tools). Only the number grammar relaxes; escapes, control characters,
+    /// whitespace and structure are rejected in both modes.
     ///
-    /// Turn it on when the document came from somewhere you do not control, or when the
-    /// JSON is going to be compared, keyed or re-serialized by a third party — a
-    /// malformed number that survives the scan is a number whose *text* JSOM faithfully
-    /// preserves, which is not the same as a number that is valid JSON.
-    ///
-    /// Validation does NOT imply eager conversion: LazyNumber still stores the original
-    /// text, so round trips stay byte-identical and number access stays lazy.
-    bool validate_numbers = false;
+    /// This costs nothing to leave off. Enforcing the grammar happens inside the scan the
+    /// parser already performs, with no second pass over the text, and measures 0.92x-0.98x
+    /// against not enforcing it (OPTIMIZATIONS.md, "Number grammar").
+    bool allow_loose_numbers = false;
 };
 
 /**
@@ -67,10 +62,10 @@ public:
     /// Comment-tolerant parsing - allows // and /* */ comments
     static const JsonParseOptions Comments;
 
-    /// Validate preset - also enforces the RFC 8259 number grammar while scanning.
-    /// The lexical rules (escapes, control characters, whitespace) are always enforced,
-    /// so this preset is about the one remaining leniency: numbers.
-    static const JsonParseOptions Validate;
+    /// Loose preset - accepts the number extensions (allow_loose_numbers).
+    /// Everything else — escapes, control characters, whitespace, structure — stays
+    /// strict, because those rules are not optional in JSOM.
+    static const JsonParseOptions Loose;
 };
 
 /**
@@ -80,28 +75,28 @@ inline const JsonParseOptions ParsePresets::Default = {
     false,                     // convert_unicode_escapes
     false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false                      // validate_numbers
+    false                      // allow_loose_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Unicode = {
     true,                      // convert_unicode_escapes
     false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false                      // validate_numbers
+    false                      // allow_loose_numbers
 };
 
 inline const JsonParseOptions ParsePresets::Comments = {
     false,                     // convert_unicode_escapes
     true,                      // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    false                      // validate_numbers
+    false                      // allow_loose_numbers
 };
 
-inline const JsonParseOptions ParsePresets::Validate = {
+inline const JsonParseOptions ParsePresets::Loose = {
     false,                     // convert_unicode_escapes
     false,                     // allow_comments
     limits::MAX_NESTING_DEPTH, // max_depth
-    true                       // validate_numbers
+    true                       // allow_loose_numbers
 };
 
 } // namespace jsom

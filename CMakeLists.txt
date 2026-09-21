@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(JSOM VERSION 3.0.1 LANGUAGES CXX)
+project(JSOM VERSION 4.0.0 LANGUAGES CXX)
 
 # ================================
 # Version — single source of truth
@@ -202,7 +202,8 @@ add_executable(jsom_tests
     tests/test_nesting_limits.cpp        # no input may exhaust the stack
 
     # Opt-in number validation tests
-    tests/test_number_validation.cpp     # strict number grammar switch (default off)
+    tests/test_number_grammar.cpp        # section 6 enforced by default
+    tests/test_number_loose.cpp          # the loose-numbers extension switch
 
     # Lexical conformance (always on: escapes, control chars, whitespace)
     tests/test_lexical_conformance.cpp   # the spec rules, enforced regardless of options

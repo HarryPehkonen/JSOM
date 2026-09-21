@@ -1,6 +1,6 @@
 # RFC 8259 conformance — measured verdict
 
-**Measured 2026-09-16** against the vendored corpus in `third_party/json_test_suite`
+**Measured 2026-09-20** against the vendored corpus in `third_party/json_test_suite`
 (nst/JSONTestSuite, MIT, (c) 2016 Nicolas Seriot). Run it:
 
 ```bash
@@ -10,10 +10,10 @@ cmake --build build --target conformance_report   # + the i_ list (decisions, no
 
 ## Where things stand
 
-| class | meaning | default (lazy numbers) | `--validation=numbers` |
+| class | meaning | default (§6 enforced) | `--validation=loose` |
 |---|---|---|---|
 | `y_` — must accept | 95 files | **95/95 OK** | 95/95 OK |
-| `n_` — must reject | 188 files | **162/188** | **188/188** |
+| `n_` — must reject | 188 files | **188/188** | 162/188 |
 | `i_` — suite abstains | 35 files | 30 accepted, 5 rejected | same |
 | crashes (never acceptable) | — | **0** | 0 |
 
@@ -70,7 +70,7 @@ reachable from a **256-byte** input, so ordinary fuzzing exercises the guard.
 
 ## Numbers and escapes — what is rejected, and when
 
-The 42 suite disagreements fall into two groups, with different defaults on purpose.
+The suite's remaining disagreements fall into two groups, both decided explicitly.
 
 **Escapes, control characters, whitespace — enforced ALWAYS, not a setting.** §7 requires
 control characters to be escaped inside strings and defines the escape set exactly; §2
@@ -85,12 +85,13 @@ Rule 3 means an escape's backslash is never dropped: an unrecognised escape is a
 error, not a character that loses its prefix, so no accepted document is altered.
 `LexicalConformanceTest.NothingIsDroppedFromAnAcceptedDocument` pins that.
 
-**Numbers — opt-in, because of measured cost.** `JsonParseOptions::validate_numbers`
-(or `ParsePresets::Validate`, or `--validation=numbers`), default **off**: RFC 8259 §9
-permits accepting non-JSON forms, so the lazy default is a documented extension rather
-than an accident. Cost: +6% parsing short numbers, +12% for 17-digit numbers, +0.5% on
-a realistic payload (OPTIMIZATIONS.md). Validation does not force conversion —
-`LazyNumber` still keeps the original text, so `1.500` round-trips byte-exact.
+**Numbers — enforced by default, and it costs nothing.** The §6 grammar is checked while
+scanning, so there is no second pass: measured **0.92x–0.98x** against not checking it,
+i.e. slightly *faster* (OPTIMIZATIONS.md, "Number grammar"). RFC 8259 §9 permits accepting
+non-JSON forms, which is what `JsonParseOptions::allow_loose_numbers` /
+`ParsePresets::Loose` / `--validation=loose` is for — an opt-in extension mode, not the
+default. Validation does not force conversion: `LazyNumber` still keeps the original text,
+so `1.500` round-trips byte-exact.
 
 Cost of the always-on lexical rules: **+1.5% on string-heavy parsing**, everything else
 within noise (OPTIMIZATIONS.md, "Lexical rules").
@@ -98,24 +99,26 @@ within noise (OPTIMIZATIONS.md, "Lexical rules").
 ### The switch
 
 ```bash
-./build/jsom_conformance                          # numbers lazy (default) -> n_ 162/188
-./build/jsom_conformance --validation=numbers     # number grammar on      -> n_ 188/188
-./jsom validate --validation=numbers file.json    # the same switch on the CLI
+./build/jsom_conformance                          # §6 enforced (default) -> n_ 188/188
+./build/jsom_conformance --validation=loose       # extensions accepted   -> n_ 162/188
+./jsom validate --validation=loose file.json      # the same switch on the CLI
 ```
 
-`ParsePresets::Validate` is the API spelling. The default is off because of speed, and
-RFC 8259 §9's permission to accept non-JSON forms is what makes that a documented
-extension rather than an oversight.
+`ParsePresets::Loose` (or `JsonParseOptions::allow_loose_numbers`) is the API spelling.
+RFC 8259 §9's permission to accept non-JSON forms is what makes the leniency a documented
+extension rather than an oversight — but it is opt-in, because an input that is not JSON
+should not be reported as JSON unless the caller asked for tolerance.
 
 **Reference point for the policy**: on the same corpus, nlohmann/json 3.11.3 scores
 `y_` 95/95, `n_` **187/188** (one disagreement, a NUL after digits), `i_` 7 accepted /
-28 rejected. With the number grammar on, JSOM and nlohmann differ only on that one file
-and on the `i_` list (where the suite has no opinion).
+28 rejected. With the number grammar enforced by default, JSOM is clean on all 188 `n_`
+files where nlohmann misses one; the two differ only on the `i_` list, where the suite
+deliberately has no opinion.
 
 ## Round-trip fidelity — what holds
 
 `tests/fuzzer.cpp` asserts `parse(to_json(doc)) == doc` for everything either
-configuration accepts — the default and `--validation=numbers` (measured 2026-09-16:
+configuration accepts — the default and `--validation=loose` (measured 2026-09-16:
 `fuzz_quick` green, 325,624 runs, no artifacts). What the default mode does with the
 shapes that stress the round trip:
 
@@ -141,9 +144,9 @@ as expected).
 
 ## Next steps
 
-1. Consider making `run_conformance` part of the gate set. It accepts
-   `--validation=numbers` so CI can assert the full-strictness verdict, and the lexical
-   rules make the default verdict meaningful too (162/188).
+1. `run_conformance` is in the gate set: the `conform` stage asserts the DEFAULT verdict
+   (`n_` 188/188) and reports the loose-mode count. Both the number grammar and the lexical
+   rules are enforced by default, so the default verdict is the meaningful one.
 2. Everything else in the suite's judged classes is clean; the remaining `i_` files are
    where the suite has no opinion and JSOM takes its documented positions (see the
    `i_` list from `conformance_report`).

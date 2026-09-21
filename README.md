@@ -142,9 +142,9 @@ directory and then configures, builds and tests *that*. It proves the committed 
 complete on its own — the only way to catch a file that is needed to build but was never
 committed, or one that `.gitignore` swallows by mistake.
 
-**Conform** asserts the strict verdict (`--validation=numbers`: `y_` 95/95, `n_` 188/188)
-and reports the default-mode count; the number grammar is opt-in, so the default 162/188
-is reported, not failed.
+**Conform** asserts the default verdict (`y_` 95/95, `n_` 188/188) and reports the loose
+count. The number grammar is enforced while scanning, so strictness costs nothing; the
+loose mode's 162/188 is reported, not failed.
 
 **Tidy** runs clang-tidy over `src/` and `include/` and requires **zero** findings. An
 optional baseline (`.ci/tidy-baseline.txt`, see `.ci.env.example`) can tolerate known
@@ -748,36 +748,38 @@ document valid JSON, so they are enforced however the parser is called:
 Cost: +1.5% on string-heavy parsing, nothing measurable elsewhere (measured; see
 "Lexical rules" in `OPTIMIZATIONS.md`).
 
-## Number validation (opt-in)
+## Numbers (§6, enforced by default)
 
-Numbers are stored lazily — JSOM keeps the original text so round trips are byte-exact
-and nothing is converted until you ask for a value. That also means the number grammar
-is not enforced during the scan, so `-01`, `1.0.`, `2.e+3`, `0e+` and `[-]` parse.
-RFC 8259 §9 allows a parser to accept non-JSON forms, so the lenient default is a
-policy, not an accident; when the input is not yours, enforce the other one:
+The number grammar is checked **while scanning**, so JSOM accepts exactly the forms the
+spec defines and rejects `-01`, `1.`, `2.e+3`, `0e+`, `1+2` and friends with
+`Invalid number: <the token>`. The scan already visits every character, so the check is a
+handful of comparisons and no second pass — measured **2–8% faster** than not checking it
+(see "Number grammar" in `OPTIMIZATIONS.md`). That is why it is the default rather than a
+switch you have to remember.
+
+Numbers are still stored lazily: JSOM keeps the original text, nothing is converted until
+you ask for a value, and `1.500` round-trips byte-for-byte.
+
+When the input is a spreadsheet export or a hand-edited file you cannot change, the
+non-JSON forms can be accepted as documented extensions (RFC 8259 §9):
 
 ```cpp
 JsonParseOptions options;
-options.validate_numbers = true;                  // rejects "Invalid number: 01"
+options.allow_loose_numbers = true;               // "01", "1.", "1eE2", "1+2"
 auto doc = parse_document(json, options);
 
-auto strict = parse_document(json, ParsePresets::Validate);  // the same thing, as a preset
+auto loose = parse_document(json, ParsePresets::Loose);   // the same thing, as a preset
 ```
+
+Loose mode relaxes the number grammar and nothing else: escapes, control characters,
+whitespace and structure are rejected in both modes.
 
 The same switch on the command line:
 
 ```bash
-jsom validate --validation=numbers data.json   # also enforce the number grammar
-jsom format   --validation=numbers data.json   # ...while formatting
+jsom validate --validation=loose data.json     # accept non-JSON number forms
+jsom format   --validation=numbers data.json   # the default, spelled out
 ```
-
-Cost, measured on a Release build (see "Number validation" in `OPTIMIZATIONS.md`):
-**+6%** parsing 2,000 short numbers, **+12%** for 17-digit numbers with exponents,
-**+0.5%** on a realistic mixed payload. The default path pays ~1–2% on number-heavy
-input for the branch.
-
-Validation does **not** force conversion: `1.500` and `1e10` still serialize back
-byte-for-byte, and access stays lazy.
 
 ## Resource Limits (RFC 8259 §9)
 
