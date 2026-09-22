@@ -395,75 +395,33 @@ find_program(CLANG_PLUS_PLUS NAMES clang++)
 find_program(VALGRIND NAMES valgrind)
 
 # Fuzzing target with libFuzzer. Gated behind JSOM_BUILD_FUZZING (default OFF): the
-# harness (tests/fuzzer.cpp) now drives JSONFuzz's structure-aware generator, mutators
-# and oracles, so it needs the JSONFuzz sibling repo. The normal build and the `pristine`
-# stage do not enable this option, so they never fetch JSONFuzz.
+# harness (tests/fuzzer.cpp) drives JSONFuzz's structure-aware generator, mutators and
+# oracles, so it needs JSONFuzz. The normal build and the `pristine` stage do not enable
+# this option, so they never fetch it.
 if(JSOM_BUILD_FUZZING)
-    # JSONFuzz: FetchContent pinned to a pushed commit, with -DJSONFUZZ_SOURCE_DIR=<path>
-    # as the offline override (the pattern JSONFuzz itself uses for nlohmann). The pinned
-    # commit is the HEAD this adapter was written and tested against.
+    # JSONFuzz: fetched from GitHub, pinned to the release tag this adapter targets.
     #
-    # DEVIATION from a plain FetchContent_MakeAvailable: JSONFuzz's CMakeLists defines a
-    # target named `format` (and `tidy`-adjacent helpers) that collides with JSOM's own
-    # `format` target when JSONFuzz is pulled in as a subdirectory — measured, the
-    # configure dies with "add_custom_target cannot create target 'format' because
-    # another target with the same name already exists". So instead of calling JSONFuzz's
-    # CMakeLists we fetch its SOURCE and build the jsonfuzz_core translation units
-    # directly here, replicating only the two things that CMakeLists does for them: the
-    # generated <jsonfuzz/version.hpp> and the nlohmann dependency. The SUT interface is
-    # strings-only, so jsonfuzz_core's nlohmann dependency stays PRIVATE and never leaks
-    # into JSOM's targets.
-    if(DEFINED JSONFUZZ_SOURCE_DIR)
-        message(STATUS "JSONFuzz: using source dir ${JSONFUZZ_SOURCE_DIR}")
-        set(JSONFUZZ_SRC ${JSONFUZZ_SOURCE_DIR})
-    else()
-        FetchContent_Declare(
-            jsonfuzz
-            GIT_REPOSITORY https://github.com/HarryPehkonen/JSONFuzz.git
-            GIT_TAG        b1fbabb  # pin: the commit the JSOM adapter targets
-        )
-        FetchContent_GetProperties(jsonfuzz)
-        if(NOT jsonfuzz_POPULATED)
-            FetchContent_Populate(jsonfuzz)
-        endif()
-        set(JSONFUZZ_SRC ${jsonfuzz_SOURCE_DIR})
+    # JSONFuzz::core is the WHOLE interface. Its nlohmann dependency is PRIVATE (the SUT
+    # interface is strings-only, so no model type reaches JSOM), and JSOM does not list
+    # JSONFuzz's translation units — a source added or renamed upstream arrives by itself
+    # instead of silently falling out of this build. That hand-list was the drift risk:
+    # JSONFuzz now guards its own developer targets behind JSONFUZZ_IS_TOP_LEVEL, so
+    # taking it in as a subdirectory is safe, and its
+    # tools/kit-probes/consumer-subdirectory.sh holds the contract this line depends on
+    # (a consumer gets JSONFuzz::core and nothing else).
+    #
+    # Offline, or while changing both repos: -DFETCHCONTENT_SOURCE_DIR_JSONFUZZ=<path>,
+    # which CI passes through as CI_FUZZ_JSONFUZZ_DIR.
+    if(DEFINED JSONFUZZ_SOURCE_DIR AND NOT DEFINED FETCHCONTENT_SOURCE_DIR_JSONFUZZ)
+        set(FETCHCONTENT_SOURCE_DIR_JSONFUZZ "${JSONFUZZ_SOURCE_DIR}")
     endif()
-
-    # Replicate JSONFuzz's generated version header (its CMakeLists configure_file).
-    set(JSONFUZZ_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/jsonfuzz-generated)
-    set(PROJECT_VERSION_MAJOR 0)
-    set(PROJECT_VERSION_MINOR 1)
-    set(PROJECT_VERSION_PATCH 0)
-    set(PROJECT_VERSION "0.1.0")
-    configure_file(
-        ${JSONFUZZ_SRC}/cmake/version.hpp.in
-        ${JSONFUZZ_GENERATED_INCLUDE_DIR}/jsonfuzz/version.hpp
-        @ONLY
-    )
-
-    # nlohmann/json is jsonfuzz_core's own model (PRIVATE, never a SUT).
     FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG        v3.11.3
+        jsonfuzz
+        GIT_REPOSITORY https://github.com/HarryPehkonen/JSONFuzz.git
+        GIT_TAG        v0.1.0  # pin: the release the JSOM adapter targets
     )
-    FetchContent_MakeAvailable(nlohmann_json)
-
-    # jsonfuzz_core, built from JSONFuzz's sources (see the deviation note above).
-    add_library(jsonfuzz_core
-        ${JSONFUZZ_SRC}/src/jsonfuzz_core.cpp
-        ${JSONFUZZ_SRC}/src/jsonfuzz_sut.cpp
-        ${JSONFUZZ_SRC}/src/jsonfuzz_generator.cpp
-        ${JSONFUZZ_SRC}/src/jsonfuzz_mutate.cpp
-        ${JSONFUZZ_SRC}/src/jsonfuzz_oracle.cpp
-        ${JSONFUZZ_SRC}/src/jsonfuzz_readings.cpp
-    )
-    target_include_directories(jsonfuzz_core PUBLIC
-        ${JSONFUZZ_SRC}/include
-        ${JSONFUZZ_GENERATED_INCLUDE_DIR}
-    )
-    target_link_libraries(jsonfuzz_core PRIVATE nlohmann_json::nlohmann_json)
-    target_compile_features(jsonfuzz_core PRIVATE cxx_std_17)
+    FetchContent_MakeAvailable(jsonfuzz)
+    message(STATUS "JSONFuzz: JSONFuzz::core from ${jsonfuzz_SOURCE_DIR}")
 
     # The JSOM JSONFuzz adapter: a jsonfuzz::SystemUnderTest wrapping jsom::JsonDocument.
     add_library(jsom_jsonfuzz_adapter fuzz/jsonfuzz_jsom.cpp)
@@ -471,26 +429,23 @@ if(JSOM_BUILD_FUZZING)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
     )
-    target_link_libraries(jsom_jsonfuzz_adapter PUBLIC jsom_lib jsonfuzz_core)
+    target_link_libraries(jsom_jsonfuzz_adapter PUBLIC jsom_lib JSONFuzz::core)
     target_compile_features(jsom_jsonfuzz_adapter PRIVATE cxx_std_17)
 
     # The harness as a compile-only OBJECT library in this build, so the tidy gate has a
     # translation unit for it (the same pattern JSONFuzz uses for its fuzz target). The
     # source stays g++-clean: it must not include libFuzzer-only headers.
     add_library(jsom_fuzz_obj OBJECT tests/fuzzer.cpp)
-    target_include_directories(jsom_fuzz_obj PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
-        ${JSONFUZZ_SRC}/include
-        ${JSONFUZZ_GENERATED_INCLUDE_DIR}
-    )
+    # Usage requirements (including JSONFuzz's include dirs) come from the adapter target,
+    # so this file names no path inside JSONFuzz's tree.
+    target_link_libraries(jsom_fuzz_obj PRIVATE jsom_jsonfuzz_adapter)
     target_compile_features(jsom_fuzz_obj PRIVATE cxx_std_17)
 
     # The libFuzzer executable (clang only). The custom mutator and the structured
     # readings live in tests/fuzzer.cpp; jsonfuzz_core provides jsonfuzz::mutate and the
     # oracles, jsom_jsonfuzz_adapter provides the SUT.
     add_executable(fuzz_jsom tests/fuzzer.cpp)
-    target_link_libraries(fuzz_jsom PRIVATE jsom_lib jsom_jsonfuzz_adapter jsonfuzz_core)
+    target_link_libraries(fuzz_jsom PRIVATE jsom_lib jsom_jsonfuzz_adapter JSONFuzz::core)
     target_include_directories(fuzz_jsom PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/fuzz
@@ -502,7 +457,7 @@ if(JSOM_BUILD_FUZZING)
     if(JSOM_BUILD_TESTS)
         add_executable(jsom_fuzz_tests tests/test_jsonfuzz_adapter.cpp)
         target_link_libraries(jsom_fuzz_tests PRIVATE
-            jsom_lib jsom_jsonfuzz_adapter jsonfuzz_core gtest gtest_main)
+            jsom_lib jsom_jsonfuzz_adapter JSONFuzz::core gtest gtest_main)
         target_include_directories(jsom_fuzz_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR}/fuzz

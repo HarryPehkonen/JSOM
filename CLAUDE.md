@@ -87,11 +87,17 @@ Use it directly while working: `tools/ci.sh build tests`, `tools/ci.sh pristine`
 ```
 
 ### Fuzzing
+These targets exist only in a build configured with `JSOM_BUILD_FUZZING=ON` (a default
+`build/` has no `fuzz_quick` to make). That option fetches JSONFuzz, pinned to the release
+tag in `CMakeLists.txt`; `-DJSONFUZZ_SOURCE_DIR=<path>` uses a local checkout instead.
 ```bash
-cmake --build build --target fuzz_quick     # 1-minute test
-cmake --build build --target fuzz           # 10-minute test  
-cmake --build build --target fuzz_long      # 1-hour test
+cmake -S . -B build-fuzz -DJSOM_BUILD_FUZZING=ON -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-fuzz --target fuzz_quick     # 1-minute test
+cmake --build build-fuzz --target fuzz           # 10-minute test
+cmake --build build-fuzz --target fuzz_long      # 1-hour test
 ```
+`tools/ci.sh fuzz` runs the same thing in the gate (20 s smoke by default) and prints the
+JSONFuzz revision it built against.
 
 ## Architecture Overview
 

@@ -68,6 +68,40 @@ def tracked_files() -> list[str]:
     ]
 
 
+def check_targets() -> list[str]:
+    """Every build target the docs tell a reader to run must still exist.
+
+    Found by hand on 2026-09-21: CLAUDE.md documents `fuzz_quick` / `fuzz` / `fuzz_long`,
+    and a rename would leave the reader with a command that cannot work — nothing checked
+    it. Candidates come from `--target X` and `make X` mentions.
+    """
+    builtin = {
+        "all", "clean", "help", "install", "test", "package", "edit_cache",
+        "rebuild_cache", "list_install_components", "install/strip", "uninstall",
+    }
+    # Only defined when the build enables JSOM_BUILD_FUZZING; documenting them is right, and
+    # the fuzz stage builds exactly those.
+    option_gated = {"fuzz_jsom", "jsom_fuzz_tests", "run_fuzz_tests"}
+    defined = set(
+        re.findall(r"add_(?:library|executable|custom_target)\(\s*([A-Za-z0-9_]+)",
+                   (ROOT / "CMakeLists.txt").read_text())
+    )
+    patterns = [r"--target\s+([A-Za-z0-9_]+)", r"`make\s+([A-Za-z0-9_]+)`", r"^make\s+([A-Za-z0-9_]+)"]
+    problems: list[str] = []
+    for rel in ("README.md", "CLAUDE.md", "CODING_STANDARDS.md", "FORMATTING.md",
+                "CONFORMANCE.md", "OPTIMIZATIONS.md"):
+        path = ROOT / rel
+        if not path.exists():
+            continue
+        text = path.read_text()
+        for pattern in patterns:
+            for hit in re.findall(pattern, text, re.MULTILINE):
+                if hit in builtin or hit in defined or hit in option_gated:
+                    continue
+                problems.append(f"{rel}: names target '{hit}', which the build does not define")
+    return problems
+
+
 def check_retired(verbose: bool) -> list[str]:
     problems, allowed = [], []
     for rel in tracked_files():
@@ -350,6 +384,7 @@ def main() -> int:
     problems = check_blocks(False)
     problems += check_stage_lists(False)
     problems += check_retired(verbose)
+    problems += check_targets()
 
     if problems:
         print("docs check FAILED:")

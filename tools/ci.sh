@@ -344,9 +344,14 @@ stage_fuzz() {
     # offline override (the pattern JSONFuzz itself uses for nlohmann) — set it in
     # .ci.env to a local checkout so this stage needs no network.
     local fuzz_build="$CI_BUILD_DIR-fuzz"
-    local jsonfuzz_opt=()
+    # -U: whatever a previous configure left in the cache cannot outrank the pin. The stage
+    # tests the pinned revision unless .ci.env says otherwise, and saying otherwise is
+    # explicit (CI_FUZZ_JSONFUZZ_DIR) rather than an accident of build-dir history. Measured
+    # 2026-09-21: build-fuzz carried a cached JSONFUZZ_SOURCE_DIR, so the stage had been
+    # fuzzing the sibling checkout while the log implied the pin.
+    local jsonfuzz_opt=(-UJSONFUZZ_SOURCE_DIR -UFETCHCONTENT_SOURCE_DIR_JSONFUZZ)
     if [ -n "${CI_FUZZ_JSONFUZZ_DIR:-}" ]; then
-        jsonfuzz_opt=(-DJSONFUZZ_SOURCE_DIR="$CI_FUZZ_JSONFUZZ_DIR")
+        jsonfuzz_opt+=(-DJSONFUZZ_SOURCE_DIR="$CI_FUZZ_JSONFUZZ_DIR")
     fi
     cmake -S . -B "$fuzz_build" -DJSOM_BUILD_FUZZING=ON -DJSOM_BUILD_TESTS=OFF \
         -DCMAKE_CXX_COMPILER=clang++ "${jsonfuzz_opt[@]}" \
@@ -355,6 +360,25 @@ stage_fuzz() {
     cmake --build "$fuzz_build" --target fuzz_jsom -j "$CI_JOBS" \
         > "$CI_LOG_DIR/fuzz-build.log" 2>&1 \
         || ci_fail fuzz "fuzz target build failed" "$CI_LOG_DIR/fuzz-build.log"
+    # Provenance: say which JSONFuzz revision this run fuzzed against. A finding's meaning
+    # rests on the pin, and a build dir configured once with CI_FUZZ_JSONFUZZ_DIR keeps
+    # using that checkout afterwards (FetchContent caches the source dir), so an offline
+    # run can be ahead of or behind the pin without saying so. Print it rather than assume.
+    # If the fetched revision looks older than the pin, wipe "$fuzz_build/_deps/jsonfuzz-src".
+    local jf_dir="${CI_FUZZ_JSONFUZZ_DIR:-}" jf_where=""
+    if [ -z "$jf_dir" ]; then
+        jf_dir="$fuzz_build/_deps/jsonfuzz-src"; jf_where="fetched"
+    else
+        jf_where="local override (CI_FUZZ_JSONFUZZ_DIR)"
+    fi
+    if [ -d "$jf_dir" ]; then
+        printf '      jsonfuzz: %s (%s), %s\n' \
+            "$(git -C "$jf_dir" describe --tags --always 2>/dev/null || echo unknown)" \
+            "$(git -C "$jf_dir" rev-parse --short HEAD 2>/dev/null || echo '?')" "$jf_where"
+    else
+        printf '      jsonfuzz: no source dir at %s — configure log has the reason\n' "$jf_dir"
+    fi
+
     # Every archived finding in fuzz/regressions/ is replayed alongside the seeds, so a
     # regression of a bug this project has already paid for fails the gate in seconds
     # instead of waiting for a campaign to rediscover it.
