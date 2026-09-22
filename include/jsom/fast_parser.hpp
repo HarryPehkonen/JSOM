@@ -3,6 +3,7 @@
 #include "constants.hpp"
 #include "json_document.hpp"
 #include "json_parse_options.hpp"
+#include "parse_error.hpp"
 #include <cctype>
 #include <cstring>
 #include <string>
@@ -22,8 +23,9 @@ private:
     /// path is then one compare and a branch, and nothing to do with the error string
     /// is set up on the way through.
     [[noreturn]] static void throw_depth_error(int limit) {
-        throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
-                                 + std::to_string(limit) + ")");
+        throw ParseError(ParseErrorCode::NestingDepthExceeded,
+                         std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                             + std::to_string(limit) + ")");
     }
 
     /// Current nesting level (1 = outermost container). Bounded so no input can exhaust
@@ -52,11 +54,12 @@ private:
     /// (it does not throw), so the check is explicit here.
     void expect_unicode_escape_digits() {
         if (pos_ + parser_constants::UNICODE_ESCAPE_LENGTH > size_) {
-            throw std::runtime_error("Incomplete unicode escape");
+            throw ParseError(ParseErrorCode::InvalidUnicodeEscape, "Incomplete unicode escape");
         }
         for (int i = 0; i < parser_constants::UNICODE_ESCAPE_LENGTH; ++i) {
             if (hex_to_int(data_[pos_ + static_cast<size_t>(i)]) < 0) {
-                throw std::runtime_error("Invalid hex digit in unicode escape");
+                throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                                 "Invalid hex digit in unicode escape");
             }
         }
     }
@@ -74,7 +77,7 @@ private:
             shown += HEX_DIGITS[static_cast<unsigned char>(escaped) >> 4];
             shown += HEX_DIGITS[static_cast<unsigned char>(escaped) & 0x0F];
         }
-        throw std::runtime_error("Invalid escape sequence: " + shown);
+        throw ParseError(ParseErrorCode::InvalidEscape, "Invalid escape sequence: " + shown);
     }
 
     void skip_whitespace() {
@@ -97,7 +100,8 @@ private:
                     if (pos_ + 1 < size_) {
                         pos_ += 2; // skip */
                     } else {
-                        throw std::runtime_error("Unterminated block comment");
+                        throw ParseError(ParseErrorCode::UnterminatedComment,
+                                         "Unterminated block comment");
                     }
                 } else {
                     break;
@@ -116,8 +120,9 @@ private:
         // NOLINTNEXTLINE(readability-identifier-length)
         char c = advance();
         if (c != expected) {
-            throw std::runtime_error("Expected '" + std::string(1, expected) + "' but got '"
-                                     + std::string(1, c) + "'");
+            throw ParseError(ParseErrorCode::ExpectedToken, "Expected '" + std::string(1, expected)
+                                                                + "' but got '" + std::string(1, c)
+                                                                + "'");
         }
     }
 
@@ -137,7 +142,8 @@ private:
 
     auto parse_unicode_escape() -> uint16_t {
         if (pos_ + parser_constants::UNICODE_ESCAPE_LENGTH > size_) {
-            throw std::runtime_error("Incomplete Unicode escape sequence");
+            throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                             "Incomplete Unicode escape sequence");
         }
 
         uint16_t codepoint = 0;
@@ -145,8 +151,8 @@ private:
             char c = advance();
             int hex_val = hex_to_int(c);
             if (hex_val == -1) {
-                throw std::runtime_error("Invalid hex digit in Unicode escape: "
-                                         + std::string(1, c));
+                throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                                 "Invalid hex digit in Unicode escape: " + std::string(1, c));
             }
             codepoint = (codepoint << 4) | static_cast<uint16_t>(hex_val);
         }
@@ -173,7 +179,7 @@ private:
             str += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
             str += static_cast<char>(0x80 | (codepoint & 0x3F));
         } else {
-            throw std::runtime_error("Invalid Unicode codepoint");
+            throw ParseError(ParseErrorCode::InvalidUnicodeEscape, "Invalid Unicode codepoint");
         }
     }
 
@@ -194,7 +200,8 @@ private:
             char c = data_[pos_];
             // §7: control characters (U+0000..U+001F) MUST be escaped inside a string.
             if (static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
-                throw std::runtime_error("Unescaped control character in string");
+                throw ParseError(ParseErrorCode::RawControlCharacter,
+                                 "Unescaped control character in string");
             }
             if (c == '"') {
                 // Bulk append everything we've scanned
@@ -260,14 +267,17 @@ private:
                                              & unicode_constants::SURROGATE_MASK);
                                     append_utf8(string_buffer_, full_codepoint);
                                 } else {
-                                    throw std::runtime_error("Invalid low surrogate pair");
+                                    throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                                                     "Invalid low surrogate pair");
                                 }
                             } else {
-                                throw std::runtime_error("Incomplete surrogate pair");
+                                throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                                                 "Incomplete surrogate pair");
                             }
                         } else if (codepoint >= unicode_constants::LOW_SURROGATE_START
                                    && codepoint <= unicode_constants::LOW_SURROGATE_END) {
-                            throw std::runtime_error("Unexpected low surrogate");
+                            throw ParseError(ParseErrorCode::InvalidUnicodeEscape,
+                                             "Unexpected low surrogate");
                         } else {
                             // Regular codepoint
                             append_utf8(string_buffer_, codepoint);
@@ -293,7 +303,7 @@ private:
             }
         }
 
-        throw std::runtime_error("Unterminated string");
+        throw ParseError(ParseErrorCode::UnterminatedString, "Unterminated string");
     }
     // NOLINTEND(readability-function-size)
 
@@ -408,8 +418,9 @@ private:
             }
             ++end;
         }
-        throw std::runtime_error("Invalid number: "
-                                 + std::string(data_ + number_start, end - number_start));
+        throw ParseError(ParseErrorCode::InvalidNumber,
+                         "Invalid number: "
+                             + std::string(data_ + number_start, end - number_start));
     }
 
     auto parse_number() -> JsonDocument {
@@ -455,7 +466,7 @@ private:
             }
         }
 
-        throw std::runtime_error("Invalid literal");
+        throw ParseError(ParseErrorCode::InvalidLiteral, "Invalid literal");
     }
 
     // Fast object parsing with direct building
@@ -483,7 +494,7 @@ private:
 
             // Parse key
             if (peek() != '"') {
-                throw std::runtime_error("Expected string key in object");
+                throw ParseError(ParseErrorCode::ExpectedToken, "Expected string key in object");
             }
             auto key_doc = parse_string();
             auto key = key_doc.take_string(); // move out — no copy (OPTIMIZATIONS.md #3)
@@ -502,7 +513,7 @@ private:
                 break;
             }
             if (c != ',') {
-                throw std::runtime_error("Expected ',' or '}' in object");
+                throw ParseError(ParseErrorCode::ExpectedToken, "Expected ',' or '}' in object");
             }
         }
 
@@ -545,7 +556,7 @@ private:
                 break;
             }
             if (c != ',') {
-                throw std::runtime_error("Expected ',' or ']' in array");
+                throw ParseError(ParseErrorCode::ExpectedToken, "Expected ',' or ']' in array");
             }
         }
 
@@ -584,7 +595,8 @@ private:
         case '9':
             return parse_number();
         default:
-            throw std::runtime_error("Unexpected character: " + std::string(1, c));
+            throw ParseError(ParseErrorCode::ExpectedToken,
+                             "Unexpected character: " + std::string(1, c));
         }
     }
     // NOLINTEND(readability-function-size)
@@ -604,14 +616,14 @@ public:
 
         skip_whitespace();
         if (pos_ >= size_) {
-            throw std::runtime_error("Empty JSON input");
+            throw ParseError(ParseErrorCode::EmptyInput, "Empty JSON input");
         }
 
         auto result = parse_value();
 
         skip_whitespace();
         if (pos_ < size_) {
-            throw std::runtime_error("Unexpected characters after JSON");
+            throw ParseError(ParseErrorCode::TrailingContent, "Unexpected characters after JSON");
         }
 
         return result;

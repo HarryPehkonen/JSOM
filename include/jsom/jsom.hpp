@@ -7,6 +7,7 @@
 #include "json_formatter.hpp"
 #include "json_parse_options.hpp"
 #include "parse_document.hpp"
+#include "parse_error.hpp"
 
 namespace jsom {
 

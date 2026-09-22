@@ -119,6 +119,10 @@ private:
         // Hard safety bound: `max_depth` is a caller filter ("stop descending here"), so
         // without this a document deeper than the nesting limit would recurse unbounded —
         // the same stack overflow the parser refuses.
+        //
+        // Deliberately plain std::runtime_error, not ParseError: path listing is JSON
+        // Pointer/navigation territory, not the parse/format path, and that exception
+        // hierarchy (JsonPointerException and friends) is out of scope here.
         if (current_depth > limits::MAX_NESTING_DEPTH) {
             throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
                                      + std::to_string(limits::MAX_NESTING_DEPTH) + ")");

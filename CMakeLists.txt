@@ -209,6 +209,9 @@ add_executable(jsom_tests
     # Lexical conformance (always on: escapes, control chars, whitespace)
     tests/test_lexical_conformance.cpp   # the spec rules, enforced regardless of options
     tests/test_const_access_safety.cpp   # const reads from several threads (TSan stage)
+
+    # Typed parse/format errors
+    tests/test_parse_error.cpp           # jsom::ParseError / ParseErrorCode
 )
 
 target_link_libraries(jsom_tests

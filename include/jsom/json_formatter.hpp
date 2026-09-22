@@ -4,6 +4,7 @@
 #include "escape.hpp"
 #include "json_document.hpp"
 #include "json_format_options.hpp"
+#include "parse_error.hpp"
 #include "utf8.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -40,7 +41,8 @@ private:
 
     void format_value(std::ostringstream& oss, const JsonDocument& doc, int depth) const {
         if (depth > options_.max_depth) {
-            throw std::runtime_error("Maximum formatting depth exceeded");
+            throw ParseError(ParseErrorCode::NestingDepthExceeded,
+                             "Maximum formatting depth exceeded");
         }
 
         switch (doc.type()) {

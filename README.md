@@ -487,17 +487,25 @@ auto doc3 = parse_document(json, options);
 ```
 
 ### Error Handling
+Parse and format failures throw `jsom::ParseError`, which derives from `std::runtime_error`
+(so existing `catch (const std::runtime_error&)` code keeps working) and additionally
+carries a `ParseErrorCode` for callers that want to switch on the failure kind instead of
+matching `what()` text:
 ```cpp
 try {
     auto doc = parse_document(invalid_json);
-} catch (const std::runtime_error& e) {
-    // Parse errors
+} catch (const ParseError& e) {
+    switch (e.code()) {
+    case ParseErrorCode::InvalidNumber: /* ... */ break;
+    case ParseErrorCode::UnterminatedString: /* ... */ break;
+    default: break;
+    }
 }
 
 try {
     auto value = doc.at("/nonexistent/path");
 } catch (const JsonPointerNotFoundException& e) {
-    // Path not found
+    // Path not found — a separate exception hierarchy (see "JSON Pointer Support" below)
 }
 ```
 
@@ -805,8 +813,13 @@ serialization (compact and pretty), comparison and path listing all refuse a doc
 deeper than the limit, with
 
 ```text
-std::runtime_error: Maximum nesting depth exceeded (limit 256)
+Maximum nesting depth exceeded (limit 256)
 ```
+
+Parsing, serialization and comparison throw `jsom::ParseError` (code
+`ParseErrorCode::NestingDepthExceeded`), which is a `std::runtime_error`; path listing is
+part of the JSON Pointer API and throws `std::runtime_error` directly (see "Error
+Handling" above).
 
 ### Choosing your limit
 

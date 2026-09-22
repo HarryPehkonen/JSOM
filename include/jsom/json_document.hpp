@@ -3,6 +3,7 @@
 #include "constants.hpp"
 #include "core_types.hpp"
 #include "escape.hpp"
+#include "parse_error.hpp"
 #include <array>
 #include <cstdio>
 #include <initializer_list>
@@ -323,6 +324,8 @@ public:
         return JsonDocument(std::map<std::string, JsonDocument>{});
     }
 
+    /// std::out_of_range, not ParseError: this is std::map::at()-style element access on an
+    /// already-parsed, valid document, not a parse or format failure.
     auto operator[](const std::string& key) -> JsonDocument& {
         validate_type(JsonType::Object);
         auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
@@ -334,6 +337,7 @@ public:
         return it->second;
     }
 
+    /// std::out_of_range, not ParseError: see the non-const overload above.
     auto operator[](const std::string& key) const -> const JsonDocument& {
         validate_type(JsonType::Object);
         const auto& obj = std::get<std::map<std::string, JsonDocument>>(storage_);
@@ -345,6 +349,8 @@ public:
         return it->second;
     }
 
+    /// std::out_of_range, not ParseError: std::vector::at()-style bounds checking on an
+    /// already-parsed, valid document, not a parse or format failure.
     auto operator[](std::size_t index) -> JsonDocument& {
         validate_type(JsonType::Array);
         auto& arr = std::get<std::vector<JsonDocument>>(storage_);
@@ -354,6 +360,7 @@ public:
         return arr[index];
     }
 
+    /// std::out_of_range, not ParseError: see the non-const overload above.
     auto operator[](std::size_t index) const -> const JsonDocument& {
         validate_type(JsonType::Array);
         const auto& arr = std::get<std::vector<JsonDocument>>(storage_);
@@ -472,8 +479,9 @@ private:
 
     /// Slow path, kept out of the inline check so a traversal costs one compare.
     [[noreturn]] static void throw_depth_error() {
-        throw std::runtime_error(std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
-                                 + std::to_string(limits::MAX_NESTING_DEPTH) + ")");
+        throw ParseError(ParseErrorCode::NestingDepthExceeded,
+                         std::string(limits::MAX_NESTING_DEPTH_MESSAGE) + " (limit "
+                             + std::to_string(limits::MAX_NESTING_DEPTH) + ")");
     }
 
     /// Equality with an explicit nesting level. It cannot delegate to

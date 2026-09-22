@@ -40,6 +40,10 @@ public:
             std::size_t pos;
             double value = std::stod(*original_repr_, &pos);
             if (pos != original_repr_->length()) {
+                // Internal control flow only: caught immediately below and reported as
+                // TypeException, so std::invalid_argument never escapes this function. A
+                // conversion failure on an already-parsed, valid document is not a parse
+                // failure, so it is not a ParseError either.
                 throw std::invalid_argument("Invalid number format");
             }
             cached_value_ = value;

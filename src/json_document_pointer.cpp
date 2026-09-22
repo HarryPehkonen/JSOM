@@ -30,6 +30,9 @@ auto JsonDocument::operator=(JsonDocument&& other) noexcept -> JsonDocument& {
 auto JsonDocument::get_json_pointer() -> std::string {
     // This would require parent tracking during document construction
     // For now, we'll throw since this requires structural changes
+    //
+    // Plain std::runtime_error, not ParseError: this is neither a parse nor a format
+    // failure, just an unimplemented API surface.
     throw std::runtime_error(
         "get_json_pointer() requires parent tracking - not implemented in current architecture");
 }

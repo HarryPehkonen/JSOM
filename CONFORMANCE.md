@@ -51,8 +51,12 @@ python3 -c "print(chr(91)*30000 + chr(93)*30000, end='')" > /tmp/deep.json
 ```
 
 ```text
-std::runtime_error: Maximum nesting depth exceeded (limit 256)
+Maximum nesting depth exceeded (limit 256)
 ```
+
+Parsing, serialization and comparison throw `jsom::ParseError` (a `std::runtime_error`
+carrying `ParseErrorCode::NestingDepthExceeded`); existing code that catches
+`std::runtime_error` around these calls needs no changes.
 
 The limit comes from measured stack cost per level (~0.3–0.6 KB, worst case an
 unoptimised debug build), so the deepest legal document fits a 1 MB thread stack with
