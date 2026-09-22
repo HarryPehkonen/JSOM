@@ -355,13 +355,16 @@ stage_fuzz() {
     cmake --build "$fuzz_build" --target fuzz_jsom -j "$CI_JOBS" \
         > "$CI_LOG_DIR/fuzz-build.log" 2>&1 \
         || ci_fail fuzz "fuzz target build failed" "$CI_LOG_DIR/fuzz-build.log"
+    # Every archived finding in fuzz/regressions/ is replayed alongside the seeds, so a
+    # regression of a bug this project has already paid for fails the gate in seconds
+    # instead of waiting for a campaign to rediscover it.
     # Reach smoke FIRST: -runs=0 plays every seed and exits non-zero unless each ENABLED
     # reading reached its oracle laws. With the default (all three) this is what keeps every
     # reading live in the gate — "at least one input got there" is the guard that hid a blind
     # spot in a sibling repo, where 117 of 9,952 inputs reached the assertion and a class-shaped
     # sabotage still survived 4.2 M executions.
     if ! JSOM_FUZZ_REQUIRE_REACH=1 JSOM_FUZZ_READINGS="$CI_FUZZ_READINGS" \
-            "$fuzz_build/fuzz_jsom" fuzz/seeds -runs=0 > "$CI_LOG_DIR/fuzz-smoke.log" 2>&1; then
+            "$fuzz_build/fuzz_jsom" fuzz/regressions fuzz/seeds -runs=0 > "$CI_LOG_DIR/fuzz-smoke.log" 2>&1; then
         ci_fail fuzz "the -runs=0 reach smoke failed (a reading starved, or a finding)" \
             "$CI_LOG_DIR/fuzz-smoke.log"
     fi
@@ -373,7 +376,7 @@ stage_fuzz() {
     fi
     grep -E "readings enabled" "$CI_LOG_DIR/fuzz-smoke.log" | tail -n 1 | sed 's/^/      /'
     mkdir -p corpus
-    if JSOM_FUZZ_READINGS="$CI_FUZZ_READINGS" "$fuzz_build/fuzz_jsom" corpus fuzz/seeds \
+    if JSOM_FUZZ_READINGS="$CI_FUZZ_READINGS" "$fuzz_build/fuzz_jsom" corpus fuzz/regressions fuzz/seeds \
             -dict=fuzz/jsom.dict -artifact_prefix=corpus/ \
             -max_total_time="$CI_FUZZ_SECONDS" > "$CI_LOG_DIR/fuzz.log" 2>&1; then
         grep -E "^Done |^#[0-9]+.*cov:" "$CI_LOG_DIR/fuzz.log" | tail -n 1 | sed 's/^/      /'
