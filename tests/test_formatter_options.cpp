@@ -358,19 +358,33 @@ TEST(FormatterOptionsTest, DeeplyNestedDocumentsFormatWithoutRecursionProblems) 
     EXPECT_EQ(jsom::parse_document(out), jsom::parse_document(json));
 }
 
-TEST(FormatterOptionsTest, IndentationDeeperThanTheLineWidthDoesNotThrow) {
+TEST(FormatterOptionsTest, IndentationDeeperThanTheLineWidthDoesNotThrowForAnyPreset) {
     // The indent prefix grows with depth, so past some depth it is LONGER than
     // max_line_width. Subtracting it from an unsigned width wrapped to ~2^64 and the
     // message buffer's reserve() threw std::length_error out of the formatter, which a
     // caller cannot be expected to catch: a 320-byte document from the nightly campaign
     // killed the process this way (fuzz/regressions/deep-nesting-exceeds-line-width.json).
     // With no room left on the line, every element takes its own line.
+    //
+    // The wrapping code computes its prefix as indent(depth+1), i.e. (depth+1)*indent_size
+    // spaces, and the crash needs that to exceed max_line_width. At 60 levels of nesting
+    // plus the array itself (depth 61 for the innermost array's own wrapping decision):
+    //   Pretty (indent 2, width 100):  61*2  = 122 > 100  -> triggers
+    //   Config (indent 2, width 100):  61*2  = 122 > 100  -> triggers
+    //   Debug  (indent 4, width  80):  61*4  = 244 >  80  -> triggers (threshold is depth 20)
+    //   Api    (indent 2, width 120):  61*2  = 122 > 120  -> triggers (barely; threshold is
+    //                                                        depth 60)
+    //   Compact (no indent, width 0/unlimited): never applies — indent_size is nullopt, so
+    //     should_inline_array() returns true before any width arithmetic runs, and
+    //     max_line_width is 0 (no limit) regardless. Included anyway so "every preset"
+    //     means every preset, not four of five.
     const std::string deep
         = std::string(60, '[') + "[1,2,3,4,5,6,7,8,9,10,11,12]" + std::string(60, ']');
     const auto doc = jsom::parse_document(deep);
 
-    for (const auto& preset : {jsom::FormatPresets::Pretty, jsom::FormatPresets::Debug,
-                               jsom::FormatPresets::Config, jsom::FormatPresets::Api}) {
+    for (const auto& preset :
+         {jsom::FormatPresets::Compact, jsom::FormatPresets::Pretty, jsom::FormatPresets::Debug,
+          jsom::FormatPresets::Config, jsom::FormatPresets::Api}) {
         std::string out;
         ASSERT_NO_THROW(out = jsom::JsonFormatter{preset}.format(doc));
         // ...and the output must still be the same document.
