@@ -354,3 +354,23 @@ TEST(FormatterOptionsTest, DeeplyNestedDocumentsFormatWithoutRecursionProblems) 
     const std::string out = format(json, jsom::FormatPresets::Compact);
     EXPECT_EQ(jsom::parse_document(out), jsom::parse_document(json));
 }
+
+TEST(FormatterOptionsTest, IndentationDeeperThanTheLineWidthDoesNotThrow) {
+    // The indent prefix grows with depth, so past some depth it is LONGER than
+    // max_line_width. Subtracting it from an unsigned width wrapped to ~2^64 and the
+    // message buffer's reserve() threw std::length_error out of the formatter, which a
+    // caller cannot be expected to catch: a 320-byte document from the nightly campaign
+    // killed the process this way (fuzz/regressions/deep-nesting-exceeds-line-width.json).
+    // With no room left on the line, every element takes its own line.
+    const std::string deep
+        = std::string(60, '[') + "[1,2,3,4,5,6,7,8,9,10,11,12]" + std::string(60, ']');
+    const auto doc = jsom::parse_document(deep);
+
+    for (const auto& preset : {jsom::FormatPresets::Pretty, jsom::FormatPresets::Debug,
+                               jsom::FormatPresets::Config, jsom::FormatPresets::Api}) {
+        std::string out;
+        ASSERT_NO_THROW(out = jsom::JsonFormatter{preset}.format(doc));
+        // ...and the output must still be the same document.
+        EXPECT_EQ(jsom::parse_document(out), doc) << "preset produced unreadable output";
+    }
+}

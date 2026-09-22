@@ -246,14 +246,18 @@ private:
         std::string line_prefix
             = options_.indent_size.has_value() && is_multiline_mode ? indent(depth + 1) : "";
 
-        size_t available_width;
-        if (is_multiline_mode) {
-            available_width = options_.max_line_width - line_prefix.length();
-        } else {
-            size_t prefix_length
-                = options_.indent_size.has_value() ? indent(depth + 1).length() : 0;
-            available_width = options_.max_line_width - prefix_length;
-        }
+        // The indentation prefix grows with depth, so past a point it is LONGER than
+        // max_line_width. Subtracting it from the unsigned width wrapped to ~2^64, and the
+        // buffer's reserve(that) threw std::length_error out of the formatter — a 320-byte
+        // document did it through the nightly campaign (2026-09-21). Clamping is the honest
+        // reading: with no room left on the line, every element takes its own line.
+        // (Both former branches computed the same value, so there is one now.)
+        const size_t prefix_length
+            = options_.indent_size.has_value() ? indent(depth + 1).length() : 0;
+        const size_t available_width
+            = static_cast<size_t>(options_.max_line_width) > prefix_length
+                  ? static_cast<size_t>(options_.max_line_width) - prefix_length
+                  : 0;
 
         ArrayLineFormatter formatter(available_width, line_prefix, is_multiline_mode);
 
