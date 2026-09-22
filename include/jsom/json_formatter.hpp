@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
@@ -110,9 +111,15 @@ private:
         return true;
     }
 
-    struct ArrayFormatStrategy {
+    /// The single decision for one array: inline or multiline, intelligent wrapping or one
+    /// element per line, and the width left on a wrapped line once its prefix is paid for.
+    /// Computed once per container by plan_array_layout() and threaded through every call
+    /// site below — nothing downstream re-derives should_inline, re-decides wrapping, or
+    /// recomputes available_width.
+    struct ArrayLayoutPlan {
         bool should_inline;
         bool use_intelligent_wrapping;
+        size_t available_width;
     };
 
     struct ArrayLineFormatter {
@@ -187,7 +194,7 @@ private:
 
     void format_array_elements_with_wrapping(std::ostringstream& oss,
                                              const std::vector<JsonDocument>& arr, int depth,
-                                             bool is_multiline_mode) const {
+                                             bool is_multiline_mode, size_t available_width) const {
         if (options_.max_line_width <= 0 || arr.empty()) {
             format_array_without_width_limit(oss, arr, depth);
             return;
@@ -195,19 +202,6 @@ private:
 
         std::string line_prefix
             = options_.indent_size.has_value() && is_multiline_mode ? indent(depth + 1) : "";
-
-        // The indentation prefix grows with depth, so past a point it is LONGER than
-        // max_line_width. Subtracting it from the unsigned width wrapped to ~2^64, and the
-        // buffer's reserve(that) threw std::length_error out of the formatter — a 320-byte
-        // document did it through the nightly campaign (2026-09-21). Clamping is the honest
-        // reading: with no room left on the line, every element takes its own line.
-        // (Both former branches computed the same value, so there is one now.)
-        const size_t prefix_length
-            = options_.indent_size.has_value() ? indent(depth + 1).length() : 0;
-        const size_t available_width
-            = static_cast<size_t>(options_.max_line_width) > prefix_length
-                  ? static_cast<size_t>(options_.max_line_width) - prefix_length
-                  : 0;
 
         ArrayLineFormatter formatter(available_width, line_prefix, is_multiline_mode);
 
@@ -246,8 +240,12 @@ private:
         }
     }
 
-    [[nodiscard]] auto determine_array_format_strategy(const std::vector<JsonDocument>& arr,
-                                                       int depth) const -> ArrayFormatStrategy {
+    /// The one decision point for how an array is laid out: inline vs. multiline,
+    /// intelligent wrapping vs. one element per line, and the width available if wrapping
+    /// is needed. Computed once per container; format_array() is the only caller, and every
+    /// downstream function is handed the answer instead of re-deriving any part of it.
+    [[nodiscard]] auto plan_array_layout(const std::vector<JsonDocument>& arr, int depth) const
+        -> ArrayLayoutPlan {
         bool should_inline = should_inline_array(arr);
         bool use_intelligent_wrapping = false;
 
@@ -258,7 +256,11 @@ private:
             use_intelligent_wrapping = true; // But with intelligent wrapping
         }
 
-        // Apply width checking for all modes when max_line_width is set
+        // Apply width checking for all modes when max_line_width is set. This is a
+        // DIFFERENT question from available_line_width() above: it asks whether the whole
+        // array fits on ONE line starting at column 0, not how much room a wrapped line has
+        // after its indentation prefix — so it stays its own computation
+        // (check_array_fits_on_line), not a use of the wrapping width.
         if (options_.max_line_width > 0 && should_inline) {
             bool fits_on_line = check_array_fits_on_line(arr, depth);
             if (!fits_on_line) {
@@ -266,7 +268,7 @@ private:
             }
         }
 
-        return {should_inline, use_intelligent_wrapping};
+        return {should_inline, use_intelligent_wrapping, available_line_width(depth + 1)};
     }
 
     void add_opening_bracket_spacing(std::ostringstream& oss, bool should_inline) const {
@@ -282,9 +284,10 @@ private:
     }
 
     void format_inline_array(std::ostringstream& oss, const std::vector<JsonDocument>& arr,
-                             int depth, bool /* use_intelligent_wrapping */) const {
+                             int depth, size_t available_width) const {
         if (options_.max_line_width > 0) {
-            format_array_with_intelligent_wrapping(oss, arr, depth);
+            format_array_elements_with_wrapping(oss, arr, depth, /*is_multiline_mode=*/false,
+                                                available_width);
         } else {
             // Standard inline format without width constraints
             for (size_t i = 0; i < arr.size(); ++i) {
@@ -297,21 +300,24 @@ private:
     }
 
     void format_multiline_array(std::ostringstream& oss, const std::vector<JsonDocument>& arr,
-                                int depth, bool use_intelligent_wrapping) const {
+                                int depth, bool use_intelligent_wrapping,
+                                size_t available_width) const {
         if (use_intelligent_wrapping) {
-            format_intelligent_multiline_array(oss, arr, depth);
+            format_intelligent_multiline_array(oss, arr, depth, available_width);
         } else {
             format_traditional_multiline_array(oss, arr, depth);
         }
     }
 
     void format_intelligent_multiline_array(std::ostringstream& oss,
-                                            const std::vector<JsonDocument>& arr, int depth) const {
+                                            const std::vector<JsonDocument>& arr, int depth,
+                                            size_t available_width) const {
         // Intelligent wrapping: multiple elements per line within width constraints
         if (options_.indent_size.has_value()) {
             oss << "\n" << indent(depth + 1);
         }
-        format_array_with_intelligent_multiline_wrapping(oss, arr, depth);
+        format_array_elements_with_wrapping(oss, arr, depth, /*is_multiline_mode=*/true,
+                                            available_width);
         if (options_.indent_size.has_value()) {
             oss << "\n" << indent(depth);
         }
@@ -343,18 +349,19 @@ public:
             return;
         }
 
-        auto format_strategy = determine_array_format_strategy(arr, depth);
+        const auto plan = plan_array_layout(arr, depth);
 
         oss << "[";
-        add_opening_bracket_spacing(oss, format_strategy.should_inline);
+        add_opening_bracket_spacing(oss, plan.should_inline);
 
-        if (format_strategy.should_inline) {
-            format_inline_array(oss, arr, depth, format_strategy.use_intelligent_wrapping);
+        if (plan.should_inline) {
+            format_inline_array(oss, arr, depth, plan.available_width);
         } else {
-            format_multiline_array(oss, arr, depth, format_strategy.use_intelligent_wrapping);
+            format_multiline_array(oss, arr, depth, plan.use_intelligent_wrapping,
+                                   plan.available_width);
         }
 
-        add_closing_bracket_spacing(oss, format_strategy.should_inline);
+        add_closing_bracket_spacing(oss, plan.should_inline);
         oss << "]";
     }
 
@@ -515,18 +522,6 @@ public:
         return total_length <= static_cast<size_t>(options_.max_line_width);
     }
 
-    void format_array_with_intelligent_multiline_wrapping(std::ostringstream& oss,
-                                                          const std::vector<JsonDocument>& arr,
-                                                          int depth) const {
-        format_array_elements_with_wrapping(oss, arr, depth, true);
-    }
-
-    void format_array_with_intelligent_wrapping(std::ostringstream& oss,
-                                                const std::vector<JsonDocument>& arr,
-                                                int depth) const {
-        format_array_elements_with_wrapping(oss, arr, depth, false);
-    }
-
     [[nodiscard]] static auto contains_only_simple_values(const std::vector<JsonDocument>& arr)
         -> bool {
         return std::all_of(arr.begin(), arr.end(), [](const auto& item) {
@@ -571,6 +566,27 @@ public:
 
     [[nodiscard]] auto indent(int depth) const -> std::string {
         return std::string(static_cast<size_t>(depth * options_.indent_size.value_or(0)), ' ');
+    }
+
+    /// The width left on a line at nesting depth `element_depth`, once its indentation
+    /// prefix is paid for. Pulled out of the wrapping code as its own named computation
+    /// (formerly written inline, once per call site) so the clamp that keeps it from
+    /// underflowing size_t is defined and tested in exactly one place: the indentation
+    /// prefix grows with depth, so past some depth it is LONGER than max_line_width, and an
+    /// unclamped `max_line_width - prefix_length` wraps to ~2^64 — the std::length_error
+    /// crash fixed in 3.1.2 (commit 1c7131a). With no room left on the line, every element
+    /// ends up taking its own line, which is what a clamp to zero means downstream.
+    ///
+    /// max_line_width <= 0 means "no limit" (FORMATTING.md), represented here as the largest
+    /// size_t rather than as a special case a caller has to branch around.
+    [[nodiscard]] auto available_line_width(int element_depth) const -> size_t {
+        if (options_.max_line_width <= 0) {
+            return std::numeric_limits<size_t>::max();
+        }
+        const auto max_width = static_cast<size_t>(options_.max_line_width);
+        const size_t prefix_length
+            = options_.indent_size.has_value() ? indent(element_depth).length() : 0;
+        return max_width > prefix_length ? max_width - prefix_length : 0;
     }
 };
 

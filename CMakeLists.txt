@@ -179,6 +179,7 @@ add_executable(jsom_tests
     tests/test_formatter_invariants.cpp   # formatting never changes meaning; idempotent
     tests/test_formatter_options.cpp      # one test per formatting option
     tests/test_formatter_layout_matrix.cpp # widened documents x options net (pre-refactor)
+    tests/test_formatter_layout_width.cpp # TDD for the extracted available_line_width() helper
     tests/test_utf8.cpp                   # UTF-8 decoder used by escape_unicode
     tests/test_escaping.cpp               # one escaping routine: agreement, stream state, round trip
 
