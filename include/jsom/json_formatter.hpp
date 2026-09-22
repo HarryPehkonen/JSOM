@@ -1,6 +1,7 @@
 #pragma once
 
 #include "constants.hpp"
+#include "escape.hpp"
 #include "json_document.hpp"
 #include "json_format_options.hpp"
 #include "utf8.hpp"
@@ -17,6 +18,9 @@ namespace jsom {
 /**
  * Advanced JSON formatter with intelligent inlining and customizable formatting options.
  */
+/// `\uXXXX` — the two characters plus four hex digits.
+inline constexpr std::size_t UNICODE_ESCAPE_LENGTH = character_constants::HEX_WIDTH + 2;
+
 class JsonFormatter {
 public:
     explicit JsonFormatter(const JsonFormatOptions& options = FormatPresets::Compact)
@@ -61,104 +65,48 @@ private:
         }
     }
 
-    // NOLINTBEGIN(readability-function-size)
-    /// Writes `codepoint` as a JSON \u escape: \uXXXX, or a surrogate pair above U+FFFF
-    /// (astral characters), which is the only form a JSON reader can decode.
-    static void append_unicode_escape(std::ostringstream& oss, std::uint32_t codepoint) {
-        const auto stream_flags = oss.flags(); // std::hex is sticky; leave the stream as found
-        oss << std::hex << std::setfill('0');
-        if (codepoint <= 0xFFFFU) {
-            oss << "\\u" << std::setw(character_constants::HEX_WIDTH) << codepoint;
-        } else {
-            const std::uint32_t offset = codepoint - 0x10000U;
-            const std::uint32_t high = 0xD800U + (offset >> 10);
-            const std::uint32_t low = 0xDC00U + (offset & 0x3FFU);
-            oss << "\\u" << std::setw(character_constants::HEX_WIDTH) << high << "\\u"
-                << std::setw(character_constants::HEX_WIDTH) << low;
-        }
-        oss.flags(stream_flags);
-    }
-
+    /// Writes `str` into `oss` as a JSON string. Escaping itself lives in one place
+    /// (escape.hpp); what stays here is fidelity: a well-formed `\uXXXX` sequence already in
+    /// the text is passed through untouched, because JSOM's default parse mode keeps escapes
+    /// as text and reformatting must not rewrite them into something else.
     void format_string(std::ostringstream& oss, const std::string& str) const {
+        const auto non_ascii = options_.escape_unicode ? escape::NonAscii::EscapeCodepoints
+                                                       : escape::NonAscii::KeepRaw;
         oss << '"';
-
-        for (size_t i = 0; i < str.length(); ++i) {
-            char c = str[i];
-
-            // Check for preserved Unicode escape sequences (\uXXXX)
-            if (c == '\\' && i + 5 <= str.length() && str[i + 1] == 'u') {
-                bool is_valid_unicode_escape = true;
-                for (int j = 2; j < 6; ++j) {
-                    char hex_char = str[i + j];
-                    if (!((hex_char >= '0' && hex_char <= '9')
-                          || (hex_char >= 'A' && hex_char <= 'F')
-                          || (hex_char >= 'a' && hex_char <= 'f'))) {
-                        is_valid_unicode_escape = false;
-                        break;
-                    }
-                }
-
-                if (is_valid_unicode_escape) {
-                    // Preserve the Unicode escape sequence as-is
-                    oss << str.substr(i, 6); // \uXXXX
-                    i += 5; // Skip the next 5 characters (we'll increment by 1 in the loop)
-                    continue;
-                }
+        std::size_t plain_start = 0;
+        for (std::size_t i = 0; i < str.size(); ++i) {
+            if (!starts_unicode_escape(str, i)) {
+                continue;
             }
+            std::string plain;
+            escape::append(plain, std::string_view(str).substr(plain_start, i - plain_start),
+                           non_ascii);
+            oss << plain << std::string_view(str).substr(i, UNICODE_ESCAPE_LENGTH);
+            i += UNICODE_ESCAPE_LENGTH - 1; // the loop increments once more
+            plain_start = i + 1;
+        }
+        std::string tail;
+        escape::append(tail, std::string_view(str).substr(plain_start), non_ascii);
+        oss << tail << '"';
+    }
 
-            // Handle regular escape sequences and characters
-            switch (c) {
-            case '"':
-                oss << "\\\"";
-                break;
-            case '\\':
-                oss << "\\\\";
-                break;
-            case '\b':
-                oss << "\\b";
-                break;
-            case '\f':
-                oss << "\\f";
-                break;
-            case '\n':
-                oss << "\\n";
-                break;
-            case '\r':
-                oss << "\\r";
-                break;
-            case '\t':
-                oss << "\\t";
-                break;
-            default:
-                const auto byte = static_cast<unsigned char>(c);
-                if (byte < character_constants::MIN_CONTROL_CHAR) {
-                    // A raw control character is not valid JSON (the parser rejects it), so
-                    // this escape is not optional and does not depend on escape_unicode —
-                    // the serializer in json_document.hpp does the same.
-                    append_unicode_escape(oss, byte);
-                } else if (options_.escape_unicode && byte > character_constants::MAX_ASCII_CHAR) {
-                    // Escape the CODEPOINT, not the byte. Escaping UTF-8 bytes emits
-                    // "\u00c3\u00a4" for "ä", which reads back as two different
-                    // characters — the text would not survive the round trip.
-                    std::uint32_t codepoint = 0;
-                    const std::size_t consumed = utf8::decode(str, i, codepoint);
-                    if (consumed == 0) {
-                        // Invalid UTF-8: escape the byte itself, so the output is at least
-                        // valid JSON and the position is preserved.
-                        append_unicode_escape(oss, byte);
-                    } else {
-                        append_unicode_escape(oss, codepoint);
-                        i += consumed - 1; // the loop increments by one more
-                    }
-                } else {
-                    oss << c;
-                }
-                break;
+    /// Is there a `\uXXXX` with four hex digits at `index`?
+    [[nodiscard]] static auto starts_unicode_escape(const std::string& str, std::size_t index)
+        -> bool {
+        if (index + UNICODE_ESCAPE_LENGTH > str.size() || str[index] != '\\'
+            || str[index + 1] != 'u') {
+            return false;
+        }
+        for (std::size_t j = 2; j < UNICODE_ESCAPE_LENGTH; ++j) {
+            const char hex = str[index + j];
+            const bool is_hex = (hex >= '0' && hex <= '9') || (hex >= 'a' && hex <= 'f')
+                                || (hex >= 'A' && hex <= 'F');
+            if (!is_hex) {
+                return false;
             }
         }
-        oss << '"';
+        return true;
     }
-    // NOLINTEND(readability-function-size)
 
     struct ArrayFormatStrategy {
         bool should_inline;

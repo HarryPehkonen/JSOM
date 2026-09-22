@@ -45,8 +45,9 @@ What each option does:
 - `quote_keys` — quote object keys; `false` emits non-standard JSON
 - `trailing_comma` — trailing commas in multiline output; non-standard JSON
 - `escape_unicode` — write non-ASCII as `\uXXXX`, escaping the CODEPOINT (an astral character
-  becomes a surrogate pair). Control characters are escaped whatever this says, because a raw
-  control character is not valid JSON
+  becomes a surrogate pair). Text that is not valid UTF-8 is passed through byte for byte: no
+  `\uXXXX` decodes back to an invalid byte, so escaping it would change the value. Control
+  characters are escaped whatever this says, because a raw control character is not valid JSON
 - `intelligent_wrapping` — pack multiple simple values per line instead of one per line
 - `max_depth` — nesting accepted while formatting; deeper input is rejected with
   "Maximum formatting depth exceeded"

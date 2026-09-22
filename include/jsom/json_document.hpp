@@ -2,6 +2,7 @@
 
 #include "constants.hpp"
 #include "core_types.hpp"
+#include "escape.hpp"
 #include <array>
 #include <cstdio>
 #include <initializer_list>
@@ -599,7 +600,7 @@ private:
         }
         case JsonType::String:
             out += '"';
-            escape_string_to_string(out, std::get<std::string>(storage_));
+            escape::append(out, std::get<std::string>(storage_), escape::NonAscii::KeepRaw);
             out += '"';
             break;
         case JsonType::Object:
@@ -627,7 +628,7 @@ private:
             break;
         case JsonType::String:
             out << '"';
-            escape_string(out, std::get<std::string>(storage_));
+            escape::append(out, std::get<std::string>(storage_), escape::NonAscii::KeepRaw);
             out << '"';
             break;
         case JsonType::Object:
@@ -651,7 +652,7 @@ private:
                 out << '\n' << std::string(static_cast<size_t>((indent + 1) * 2), ' ');
             }
             out << '"';
-            escape_string(out, key);
+            escape::append(out, key, escape::NonAscii::KeepRaw);
             out << "\":";
             if (pretty) {
                 out << ' ';
@@ -674,7 +675,7 @@ private:
                 out += ',';
             }
             out += '"';
-            escape_string_to_string(out, key);
+            escape::append(out, key, escape::NonAscii::KeepRaw);
             out += "\":";
             value.serialize_compact_to_string(out, level + 1);
             first = false;
@@ -705,7 +706,7 @@ private:
                 out << ',';
             }
             out << '"';
-            escape_string(out, key);
+            escape::append(out, key, escape::NonAscii::KeepRaw);
             out << "\":";
             value.serialize_compact(out, level + 1);
             first = false;
@@ -763,7 +764,7 @@ private:
             break;
         case JsonType::String:
             out << '"';
-            escape_string(out, std::get<std::string>(storage_));
+            escape::append(out, std::get<std::string>(storage_), escape::NonAscii::KeepRaw);
             out << '"';
             break;
         case JsonType::Object:
@@ -779,123 +780,6 @@ public:
     void serialize_to(std::ostream& out, bool pretty, int indent = 0) const {
         serialize_value(out, pretty, indent, 1);
     }
-
-    // NOLINTBEGIN(readability-function-size)
-    static void escape_string_to_string(std::string& out, const std::string& str) {
-        // Fast path: check if string needs escaping
-        bool needs_escaping = false;
-        // NOLINTNEXTLINE(readability-identifier-length)
-        for (char c : str) {
-            // NOLINTNEXTLINE(readability-magic-numbers)
-            if (c == '"' || c == '\\'
-                || static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
-                needs_escaping = true;
-                break;
-            }
-        }
-
-        if (!needs_escaping) {
-            // Fast path: append directly
-            out += str;
-            return;
-        }
-
-        // Slow path: escape character by character
-        // NOLINTNEXTLINE(readability-identifier-length)
-        for (char c : str) {
-            switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\b':
-                out += "\\b";
-                break;
-            case '\f':
-                out += "\\f";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                // NOLINTNEXTLINE(readability-magic-numbers)
-                if (static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
-                    std::array<char, character_constants::UNICODE_BUFFER_SIZE> buf{};
-                    std::sprintf(buf.data(), "\\u%04x", static_cast<unsigned>(c));
-                    out += buf.data();
-                } else {
-                    out += c;
-                }
-                break;
-            }
-        }
-    }
-    // NOLINTEND(readability-function-size)
-
-    // NOLINTBEGIN(readability-function-size)
-    static void escape_string(std::ostream& out, const std::string& str) {
-        // Fast path: check if string needs escaping
-        bool needs_escaping = false;
-        // NOLINTNEXTLINE(readability-identifier-length)
-        for (char c : str) {
-            if (c == '"' || c == '\\'
-                || static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
-                needs_escaping = true;
-                break;
-            }
-        }
-
-        if (!needs_escaping) {
-            // Fast path: output directly
-            out << str;
-            return;
-        }
-
-        // Slow path: escape character by character
-        // NOLINTNEXTLINE(readability-identifier-length)
-        for (char c : str) {
-            switch (c) {
-            case '"':
-                out << "\\\"";
-                break;
-            case '\\':
-                out << "\\\\";
-                break;
-            case '\b':
-                out << "\\b";
-                break;
-            case '\f':
-                out << "\\f";
-                break;
-            case '\n':
-                out << "\\n";
-                break;
-            case '\r':
-                out << "\\r";
-                break;
-            case '\t':
-                out << "\\t";
-                break;
-            default:
-                if (static_cast<unsigned char>(c) < character_constants::MIN_CONTROL_CHAR) {
-                    out << "\\u" << std::hex << std::setfill('0') << std::setw(4)
-                        << static_cast<unsigned>(c);
-                } else {
-                    out << c;
-                }
-                break;
-            }
-        }
-    }
-    // NOLINTEND(readability-function-size)
 
     // Comparison operators
     friend auto operator==(const JsonDocument& lhs, const JsonDocument& rhs) -> bool;

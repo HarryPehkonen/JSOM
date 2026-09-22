@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace jsom::utf8 {
 
@@ -17,8 +18,8 @@ namespace jsom::utf8 {
 /// — a bad lead byte, a missing or malformed continuation byte, an overlong encoding, a
 /// surrogate half (U+D800..U+DFFF, which UTF-8 must never encode), or a value above
 /// U+10FFFF. Callers decide what to do with invalid input; nothing is thrown here.
-[[nodiscard]] inline auto decode(const std::string& text, std::size_t index,
-                                 std::uint32_t& codepoint) -> std::size_t {
+[[nodiscard]] inline auto decode(std::string_view text, std::size_t index, std::uint32_t& codepoint)
+    -> std::size_t {
     if (index >= text.size()) {
         return 0;
     }

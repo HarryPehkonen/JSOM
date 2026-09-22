@@ -693,6 +693,9 @@ The formatter has its own escape switch, independent of the parse options:
   **codepoint**: `ä` becomes `\u00e4`, and characters above U+FFFF become a surrogate pair
   (`😀` → `\ud83d\ude00`). Escaping the bytes instead would emit `\u00c3\u00a4` for `ä`,
   which reads back as two different characters.
+- Text that is **not valid UTF-8** is passed through byte for byte in either mode: no
+  `\uXXXX` decodes back to an invalid byte, so escaping it would change the value. Validating
+  input UTF-8 is separate work — JSOM does none when parsing.
 
 ```cpp
 JsonFormatOptions options = FormatPresets::Compact;

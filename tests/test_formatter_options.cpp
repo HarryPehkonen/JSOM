@@ -307,25 +307,28 @@ TEST(FormatterOptionsTest, EscapeUnicodeLeavesTheStreamInDecimal) {
     EXPECT_EQ(format(R"(["ä",255])", options), R"(["\u00e4", 255])");
 }
 
-TEST(FormatterOptionsTest, InvalidUtf8IsEscapedByteWiseWithoutBreakingTheOutput) {
-    // Not valid UTF-8: a lone continuation byte and a truncated sequence. The formatter
-    // cannot decode these, so it escapes the byte itself — the output stays valid JSON.
+TEST(FormatterOptionsTest, InvalidUtf8IsLeftAloneSoTheValueCannotChange) {
+    // Not valid UTF-8: a lone continuation byte and a truncated sequence. No \uXXXX decodes
+    // back to an invalid byte — escaping 0x80 as \u0080 yields TWO bytes (C2 80) and changes
+    // the value, which is a reformat silently rewriting data. So the byte passes through
+    // untouched: a string that was not valid UTF-8 stays exactly as it was, and the output is
+    // no more invalid than the input. (Validating input UTF-8 is separate work: JSOM does no
+    // UTF-8 validation when parsing.) Measured 2026-09-21: the previous byte-wise escaping
+    // round-tripped "a\xc3" back as "a\xc3\x83".
     jsom::JsonFormatOptions options = jsom::FormatPresets::Compact;
     options.escape_unicode = true;
-    // Note the split literals: "a\x80b" would parse as the single escape \x80b.
-    const std::vector<std::pair<std::string, std::string>> malformed = {
-        {std::string{"a\x80"
-                     "b"},
-         "\\u0080"}, // lone continuation byte
-        {std::string{"a\xE2\x82"
-                     "b"},
-         "\\u00e2"}, // truncated 3-byte sequence
+    const std::vector<std::string> malformed = {
+        std::string{"a\x80"
+                    "b"}, // lone continuation byte
+        std::string{"a\xE2\x82"
+                    "b"}, // truncated 3-byte sequence
     };
-    for (const auto& [bad, expected_escape] : malformed) {
+    for (const auto& bad : malformed) {
         const jsom::JsonDocument doc{bad};
         const std::string out = jsom::JsonFormatter{options}.format(doc);
         EXPECT_NO_THROW((void)jsom::parse_document(out)) << "output was: " << out;
-        EXPECT_NE(out.find(expected_escape), std::string::npos) << out;
+        EXPECT_EQ(out, "\"" + bad + "\"") << "the bytes were rewritten: " << out;
+        EXPECT_EQ(jsom::parse_document(out).as<std::string>(), bad) << "the value changed";
     }
 }
 
