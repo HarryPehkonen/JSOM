@@ -11,4 +11,10 @@
 # The full set — format, ASan, fuzz, conformance, tidy, pristine — runs on push.
 # Deliberate bypass: git commit --no-verify
 #
-exec "$(git rev-parse --show-toplevel)/tools/ci.sh" build tests
+# 2026-10-06: this hook used to spell its two stages. The tiers now live in tools/ci.sh as
+# CI_FAST_STAGES/CI_FULL_STAGES and the hook NAMES one, so a stage added to the gate reaches a
+# commit without this file being edited — the drift that let an unformatted commit through in
+# FSMTable, found by probes/hook-tiers-agree.sh. `format` joins the fast tier for the same reason:
+# it is what would have caught that commit. (This repo has no INCIDENTS.md, so the deviation is
+# stated here, as the file's own convention asks.)
+exec "$(git rev-parse --show-toplevel)/tools/ci.sh" fast

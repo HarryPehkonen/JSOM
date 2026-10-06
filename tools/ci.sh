@@ -72,7 +72,23 @@ CI_FUZZ_JSONFUZZ_DIR=${CI_FUZZ_JSONFUZZ_DIR:-}   # offline override for the JSON
 CI_LOG_DIR=${CI_LOG_DIR:-.ci-logs}
 CI_STRICT_TOOLS=${CI_STRICT_TOOLS:-0}           # 1 = a missing tool fails the run instead of SKIPping
 CI_KEEP_TMP=${CI_KEEP_TMP:-0}                   # 1 = keep the pristine-build temp dir for inspection
-CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-"tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine"}
+# The two hook tiers, ONE definition each. Both hooks name a tier instead of repeating a list, so a
+# stage added below cannot be run by a hand run and skipped by a push (or the reverse) — which is
+# what happened in FSMTable on 2026-10-06, where the gate had gained `fuzz` and the installed
+# pre-push still named the kit's original eleven, so every push skipped the fuzzer. The comment
+# below is the block probes/hook-tiers-agree.sh compares these two variables against.
+#
+#   fast  (pre-commit)  format build tests
+#   full  (pre-push)    --require-clean tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine
+#
+# `format` is in the fast tier deliberately: it is the one check that says "the file you are about
+# to commit is not the file the formatter would write", it costs well under a second on a warm
+# tree, and on 2026-10-06 its absence let an unformatted commit through in FSMTable that only a
+# full run caught. `full` is also the default list below, so a hand run and a push run the same
+# stages and only --require-clean differs.
+CI_FAST_STAGES=${CI_FAST_STAGES:-"format build tests"}
+CI_FULL_STAGES=${CI_FULL_STAGES:-"tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine"}
+CI_DEFAULT_STAGES=${CI_DEFAULT_STAGES:-$CI_FULL_STAGES}
 CI_TIDY_BASELINE=${CI_TIDY_BASELINE:-.ci/tidy-baseline.txt}
 
 if [ -f .ci.env ]; then
@@ -669,6 +685,8 @@ while [ $# -gt 0 ]; do
         --strict-tools) CI_STRICT_TOOLS=1 ;;
         --write-tidy-baseline) WRITE_TIDY_BASELINE=1 ;;
         -*) printf 'unknown option: %s (try --help)\n' "$1" >&2; exit 2 ;;
+        fast) STAGES_REQUESTED+=($CI_FAST_STAGES) ;;
+        full) STAGES_REQUESTED+=($CI_FULL_STAGES) ;;
         *) STAGES_REQUESTED+=("$1") ;;
     esac
     shift
