@@ -288,6 +288,30 @@ stage_format() {
     local -a sources=()
     mapfile -t sources < <(ci_sources)
     if clang-format --dry-run -Werror "${sources[@]}" > "$CI_LOG_DIR/format.log" 2>&1; then
+        # The check above read the WORKING TREE, and a commit records the INDEX. Stage an unformatted
+        # file, then format it on disk -- what anyone does after this stage rejects a commit -- and the
+        # check above passes while the commit still records the unformatted text. HEAD then differs from
+        # the working tree, and the next `--require-clean` push fails in `tree` with "uncommitted changes
+        # to tracked files": a message that never mentions formatting. Kit fix `format-checks-staged`
+        # (kit commit 96719c4, docs/KIT-FIXES.md); the probe is in tools/kit-probes/.
+        local -a staged=() index_drift=()
+        local staged_f
+        while IFS= read -r staged_f; do
+            [ -n "$staged_f" ] && [ -f "$staged_f" ] && [[ "$staged_f" =~ \.(cpp|cc|cxx|hpp|hh|h)$ ]] && staged+=("$staged_f")
+        done < <(git diff --cached --name-only --diff-filter=ACMR)
+        if [ "${#staged[@]}" -gt 0 ]; then
+            for staged_f in "${staged[@]}"; do
+                git show ":$staged_f" 2>/dev/null |
+                    clang-format --dry-run -Werror --assume-filename="$staged_f" - > /dev/null 2>> "$CI_LOG_DIR/format.log" ||
+                    index_drift+=("$staged_f")
+            done
+            if [ "${#index_drift[@]}" -gt 0 ]; then
+                printf '    the STAGED copy is not formatted (that is what the commit would record):\n'
+                printf '%s\n' "${index_drift[@]}" | sed 's/^/      /'
+                ci_fail format "the staged copy of the file(s) above fails clang-format -- this stage checks the working tree, and a commit records the index (fix: clang-format -i <files> && git add <files>)" "$CI_LOG_DIR/format.log"
+                return 1
+            fi
+        fi
         printf '    %s files conform to .clang-format\n' "${#sources[@]}"
         ci_pass format
         return 0
