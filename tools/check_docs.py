@@ -337,14 +337,36 @@ def check_blocks(write: bool) -> list[str]:
 STAGE_LIST = re.compile(r"`(tree [^`]*?pristine[^`]*)`", re.S)
 
 
+def _default_stages() -> str:
+    """Ask the gate what its default set is.
+
+    tools/ci.sh holds the ONE definition and prints it in --list, so this reads the gate's own
+    answer rather than pattern-matching the assignment. The pattern version broke on 2026-10-06:
+    CI_DEFAULT_STAGES became ${CI_DEFAULT_STAGES:-$CI_FULL_STAGES} when the hook tiers landed, the
+    list itself was unchanged, and every doc-table check in this repo failed with "could not read
+    CI_DEFAULT_STAGES" — a reader that knows the spelling of a line instead of the contract. (The
+    same shape had to be fixed in the kit's own probes/optimized-stage.sh.)
+    """
+    try:
+        out = subprocess.run(["bash", str(ROOT / "tools" / "ci.sh"), "--list"],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        out = None
+    if out is not None:
+        for line in out.stdout.splitlines():
+            if line.startswith("default stages:"):
+                return " ".join(line.split(":", 1)[1].split())
+    ci = (ROOT / "tools/ci.sh").read_text()
+    m = re.search(r'CI_DEFAULT_STAGES=\$\{CI_DEFAULT_STAGES:-"([^"]+)"\}', ci)
+    return m.group(1) if m else ""
+
+
 def check_stage_lists(write: bool) -> list[str]:
     """The stage list is written down in the docs and was stale twice (sibling sessions
     added stages). tools/ci.sh holds the one definition; the docs must quote it."""
-    ci = (ROOT / "tools/ci.sh").read_text()
-    m = re.search(r'CI_DEFAULT_STAGES=\$\{CI_DEFAULT_STAGES:-"([^"]+)"\}', ci)
-    if not m:
-        return ["tools/ci.sh: could not read CI_DEFAULT_STAGES"]
-    default = m.group(1)
+    default = _default_stages()
+    if not default:
+        return ["tools/ci.sh: could not read the default stage list (--list prints none)"]
     problems = []
     for rel in ("README.md", "CLAUDE.md", "CODING_STANDARDS.md"):
         path = ROOT / rel
