@@ -111,7 +111,7 @@ option(JSOM_BUILD_BENCHMARKS "Build JSOM benchmarks" OFF)  # Always OFF unless e
 # The libFuzzer target needs clang AND the JSONFuzz sibling repo (structure-aware
 # generator + mutators + oracles). OFF by default so JSOM's normal build and its
 # `pristine` stage do not need the sibling repo or a network fetch. The `fuzz` stage in
-# tools/ci.sh turns it on in its own build dir. JSONFuzz comes in via FetchContent pinned
+# scripts/gate.sh turns it on in its own build dir. JSONFuzz comes in via FetchContent pinned
 # to a pushed commit, with -DJSONFUZZ_SOURCE_DIR=<path> as the offline override (the
 # pattern JSONFuzz itself uses for nlohmann).
 option(JSOM_BUILD_FUZZING "Build the libFuzzer target (clang only; needs JSONFuzz)" OFF)
@@ -245,7 +245,7 @@ add_custom_target(run_tests
 )
 endif()  # JSOM_BUILD_TESTS
 
-# Thread-safety probe. Not a gtest binary on purpose: the `tsan` stage in tools/ci.sh
+# Thread-safety probe. Not a gtest binary on purpose: the `tsan` stage in scripts/gate.sh
 # builds this one file with ThreadSanitizer, and instrumenting the test framework too
 # would cost minutes per run. It is built in every configuration, so a break here cannot
 # hide until the thread gate runs.
@@ -336,7 +336,7 @@ endif()
 # ================================
 
 # Find source files for formatting and linting.
-# Keep this list in step with the format gate in tools/ci.sh (ci_sources): the gate
+# Keep this list in step with the format gate in scripts/gate.sh (ci_sources): the gate
 # checks exactly what `make format` would rewrite.
 file(GLOB_RECURSE JSOM_SOURCES 
     ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp

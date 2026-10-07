@@ -62,7 +62,7 @@ To release: edit that one line, rebuild, tag `v<version>`.
 - C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - CMake 3.10+
 
-**Note:** The library uses C++17 internally but works seamlessly with projects using C++20, C++23, or any future C++ standard. Your project is not forced to use a specific C++ version. This is tested rather than assumed: the `std` stage of `tools/ci.sh` compiles and runs `tools/std_probe.cpp` under `-std=c++17`, `-std=c++20` and `-std=c++23`.
+**Note:** The library uses C++17 internally but works seamlessly with projects using C++20, C++23, or any future C++ standard. Your project is not forced to use a specific C++ version. This is tested rather than assumed: the `std` stage of `scripts/gate.sh` compiles and runs `tools/std_probe.cpp` under `-std=c++17`, `-std=c++20` and `-std=c++23`.
 
 ### ⚠ Safety Note
 **Always stay in the project root directory when possible.** Avoid changing to `./build/` directory during development to prevent accidental `rm -rf *` commands from deleting your entire project. Use relative paths like `./build/jsom_tests` instead of changing directories.
@@ -112,20 +112,20 @@ cmake --build build --target run_benchmarks
 ## Local CI (git hooks)
 
 Every gate in `CODING_STANDARDS.md` runs locally, from one script — no GitHub, no
-network, no framework. `tools/ci.sh` is non-destructive: it never commits, stages,
+network, no framework. `scripts/gate.sh` is non-destructive: it never commits, stages,
 reverts or reformats anything.
 
 ```bash
 git config core.hooksPath .githooks    # once per clone — enables the hooks
-tools/ci.sh                            # all stages, by hand, any time
-tools/ci.sh build tests                # named stages only, in the order given
-tools/ci.sh --list                     # what the stages are
+scripts/gate.sh                            # all stages, by hand, any time
+scripts/gate.sh --tier fast                # named stages only, in the order given
+kit-ci --list                     # what the stages are
 ```
 
 | hook | runs | cost |
 |---|---|---|
 | `pre-commit` | `build tests` | ~15 s |
-| `pre-push` | `tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine` | ~2–5 min |
+| `pre-push` | `tree format build tests consumer asan fuzz tsan std cli conform docs tidy pristine` | ~2–5 min |
 
 Stages beyond the obvious ones: **`tsan`** builds `tests/thread_safety_probe.cpp` with
 ThreadSanitizer and hammers one const document from four threads (~6 s — reading a
@@ -152,7 +152,7 @@ findings while still failing on new ones — the repo currently needs none.
 
 Machine-specific settings — job count, fuzz seconds, stage list, whether a missing tool
 fails the run — live in `.ci.env`, which is gitignored. Copy `.ci.env.example` and edit;
-every knob has a default in `tools/ci.sh`, so an unconfigured clone still works.
+every knob has a default in `scripts/gate.sh`, so an unconfigured clone still works.
 
 ## Installing
 ```bash

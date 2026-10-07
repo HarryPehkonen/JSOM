@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
 #
-# pre-commit: the fast gate (build + tests, ~15 s).
+# pre-commit: the FAST tier — the part of the gate that must be seconds, not minutes.
 #
-# from AI-DEV-STARTER (plunk-in kit), templates/hooks/pre-commit. Deviation: the kit's
-# deno/python branch is dropped — this repo's gate is always tools/ci.sh, and a missing one
-# still fails the commit closed (exec returns 127), so the kit's "no gate found" message is
-# dropped with it. The kit says to record edits to its files in INCIDENTS.md; this repo has
-# no INCIDENTS.md, so the deviation is stated here instead.
+# from AI-DEV-STARTER (plunk-in kit) — if you edit this file, say why in INCIDENTS.md.
+# Install as .githooks/pre-commit and arm it once per clone:
 #
-# The full set — format, ASan, fuzz, conformance, tidy, pristine — runs on push.
-# Deliberate bypass: git commit --no-verify
+#     git config core.hooksPath .githooks
 #
-# 2026-10-06: this hook used to spell its two stages. The tiers now live in tools/ci.sh as
-# CI_FAST_STAGES/CI_FULL_STAGES and the hook NAMES one, so a stage added to the gate reaches a
-# commit without this file being edited — the drift that let an unformatted commit through in
-# FSMTable, found by probes/hook-tiers-agree.sh. `format` joins the fast tier for the same reason:
-# it is what would have caught that commit. (This repo has no INCIDENTS.md, so the deviation is
-# stated here, as the file's own convention asks.)
-exec "$(git rev-parse --show-toplevel)/tools/ci.sh" fast
+# Nothing leaves the machine to make this work: no GitHub, no service, no account.
+# It is the same gate a human runs by hand and the nightly clean checkout runs.
+#
+# Deliberate bypass when you need one:  git commit --no-verify
+#
+# 2026-10-06 (card t_075c0a6f): the gate IS gate.toml now, run by kit-ci, so this hook NAMES A
+# TIER instead of repeating a stage list — the list lives in one place, gate.toml's
+# [tier.fast], and a hook that names the tier cannot drift from it. The kit's `tools/ci.sh`
+# branch is gone with the file it tested.
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel) || exit 1
+
+# C++: a full run is minutes, so commit gets the fast tier — the list gate.toml declares as
+# [tier.fast]. Everything else (the sanitizers, fuzz, tidy, the clean-checkout stage) belongs
+# to pre-push.
+if [ -x "$root/scripts/gate.sh" ]; then
+    exec "$root/scripts/gate.sh" --tier fast
+fi
+
+# No gate found is a failure, not a warning: a silently unarmed gate is worse than
+# no gate, because it looks armed.
+printf 'pre-commit: no gate found. Expected %s/scripts/gate.sh (with gate.toml next to it).\n' \
+    "$root" >&2
+exit 1

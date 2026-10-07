@@ -65,13 +65,13 @@ cmake --build build --target validation
 
 ### Local CI (the gates, run by the hooks)
 
-`tools/ci.sh` runs every gate from `CODING_STANDARDS.md` (`tree format kitprobes build tests consumer asan fuzz tsan std cli conform docs tidy pristine`, and `coverage` on request); `.githooks/pre-commit`
+`scripts/gate.sh` runs every gate from `CODING_STANDARDS.md` (`tree format build tests consumer asan fuzz tsan std cli conform docs tidy pristine`, and `coverage` on request); `.githooks/pre-commit`
 runs `build tests`, and
 `.githooks/pre-push` runs the full set and additionally requires a clean worktree. Enable
 once per clone with `git config core.hooksPath .githooks`. Per-machine settings live in
 `.ci.env` (gitignored; see `.ci.env.example`) — stage output goes to `.ci-logs/`.
-Use it directly while working: `tools/ci.sh build tests`, `tools/ci.sh pristine`,
-`tools/ci.sh --list`.
+Use it directly while working: `scripts/gate.sh --tier fast`, `scripts/gate.sh pristine`,
+`kit-ci --list`.
 
 ### Benchmarking
 ```bash
@@ -96,7 +96,7 @@ cmake --build build-fuzz --target fuzz_quick     # 1-minute test
 cmake --build build-fuzz --target fuzz           # 10-minute test
 cmake --build build-fuzz --target fuzz_long      # 1-hour test
 ```
-`tools/ci.sh fuzz` runs the same thing in the gate (20 s smoke by default) and prints the
+`scripts/gate.sh fuzz` runs the same thing in the gate (20 s smoke by default) and prints the
 JSONFuzz revision it built against.
 
 ## Architecture Overview
@@ -195,7 +195,7 @@ CODING_STANDARDS.md):
    behavior change or bug fix.
 3. Sanitizer gate: `cmake -B build-asan -DJSOM_SANITIZE=ON && cmake --build
    build-asan -j$(nproc) && ./build-asan/jsom_tests` — clean under ASan+UBSan.
-4. Thread gate: `tools/ci.sh tsan` — const reads from several threads must stay
+4. Thread gate: `scripts/gate.sh tsan` — const reads from several threads must stay
    race-free (`-DJSOM_SANITIZE=thread`, ~6 s). Const access may not modify hidden
    state: no `mutable` written from a const member, no `const_cast` on `this`
    (CODING_STANDARDS rule 11).
