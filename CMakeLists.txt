@@ -628,6 +628,52 @@ if(JSOM_INSTALL)
     )
 endif()
 
+# ---- Library install/export (canonical CMake package) --------------------
+# jsom_lib + headers install as a CMake package (JSOM::jsom alias), so external
+# consumers can find_package(JSOM) and link without embedding the repo. The CLI
+# install above is unchanged. Binary gets a soname from PROJECT_VERSION.
+set_target_properties(jsom_lib PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    EXPORT_NAME jsom
+)
+install(TARGETS jsom_lib
+    EXPORT JSOMTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(DIRECTORY include/jsom/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
+    FILES_MATCHING PATTERN "*.hpp"
+)
+# The generated version header is not in the source tree; install it explicitly.
+install(FILES ${JSOM_GENERATED_INCLUDE_DIR}/jsom/version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
+)
+install(EXPORT JSOMTargets
+    FILE JSOMTargets.cmake
+    NAMESPACE JSOM::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
+)
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+configure_package_config_file(
+    cmake/JSOMConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
+)
+
 # ================================
 # Development Convenience Targets
 # ================================
