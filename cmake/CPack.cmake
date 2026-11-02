@@ -25,7 +25,17 @@
 # packaging-only fix ships as 3.1.2-2 without pretending the library changed.
 # See PACKAGING.md.
 
-set(JSOM_PACKAGE_RELEASE 1)
+# The packaging release. It is 2, not 1, for a measured Fedora reason: the pool already
+# carries jsom 3.1.2-1.fc44, published with a Fedora dist tag by the hand builder this
+# repository supersedes, and rpm's own comparison ranks that release ABOVE a plain "1".
+# Verified on the machine that consumes it:
+#   rpm --eval '%{lua: print(rpm.vercmp("3.1.2-1.fc44","3.1.2-1"))}'   ->  1
+# A package numbered "1" would therefore never be offered as an upgrade to a machine
+# that already has one, so the first packaging revision that can actually reach those
+# machines is 2. Both ecosystems carry the same release, because the four forms are
+# meant to be interchangeable. Republishing 3.1.2-1.fc44 was not an option: a pool entry
+# must never change under its own name-version-release.
+set(JSOM_PACKAGE_RELEASE 2)
 set(JSOM_PACKAGE_VERSION "${PROJECT_VERSION}-${JSOM_PACKAGE_RELEASE}")
 
 # This tree builds STATIC libraries by default (BUILD_SHARED_LIBS unset), which is

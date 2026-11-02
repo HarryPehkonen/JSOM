@@ -80,6 +80,19 @@ fixed description) ships as `3.1.2-2` without pretending the library or the CLI
 changed. The packaging release is **not** a git tag: the tag names the source
 revision (`v3.1.2`), the packaging release names the build of it.
 
+It currently reads `2`, not `1`, for a measured Fedora reason. The pool already
+carried `jsom 3.1.2-1.fc44` — published with a Fedora dist tag by the hand builder
+this repository supersedes — and rpm's own comparison ranks that release *above* a
+plain `1`, as printed by the machine that consumes it:
+
+    rpm --eval '%{lua: print(rpm.vercmp("3.1.2-1.fc44","3.1.2-1"))}'    ->  1
+
+so a package numbered `1` would never have been offered as an upgrade to a machine
+that already had one. The first packaging revision that can actually reach those
+machines is therefore `2`. Both ecosystems carry the same release, because the forms
+are meant to be interchangeable. Republishing `3.1.2-1.fc44` was not an option: a pool
+entry must never change under its own name-version-release.
+
 ## Verification
 
 ```bash
