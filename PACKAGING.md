@@ -80,18 +80,17 @@ fixed description) ships as `3.1.2-2` without pretending the library or the CLI
 changed. The packaging release is **not** a git tag: the tag names the source
 revision (`v3.1.2`), the packaging release names the build of it.
 
-It currently reads `2`, not `1`, for a measured Fedora reason. The pool already
-carried `jsom 3.1.2-1.fc44` — published with a Fedora dist tag by the hand builder
-this repository supersedes — and rpm's own comparison ranks that release *above* a
-plain `1`, as printed by the machine that consumes it:
+For 3.1.2 the release read `2` rather than `1`, for a measured Fedora reason. The pool
+already carried `jsom 3.1.2-1.fc44` — published with a Fedora dist tag by the hand builder
+this repository supersedes — and rpm's own comparison ranks that release *above* a plain
+`1`, as printed by the machine that consumes it:
 
     rpm --eval '%{lua: print(rpm.vercmp("3.1.2-1.fc44","3.1.2-1"))}'    ->  1
 
-so a package numbered `1` would never have been offered as an upgrade to a machine
-that already had one. The first packaging revision that can actually reach those
-machines is therefore `2`. Both ecosystems carry the same release, because the forms
-are meant to be interchangeable. Republishing `3.1.2-1.fc44` was not an option: a pool
-entry must never change under its own name-version-release.
+so a package numbered `1` would never have been offered as an upgrade to a machine that
+already had one, and republishing `3.1.2-1.fc44` was not an option: a pool entry must never
+change under its own name-version-release. **A new upstream version starts over at 1** —
+3.2.0 ships as `3.2.0-1` in every form.
 
 ## Verification
 
@@ -118,29 +117,47 @@ It builds the packages, then checks them the way a user would experience them:
 
 ## Releasing
 
-There is no release tool in this repository yet; `tools/release.sh` is being added
-across the fleet (FSMgine and FSMTable already have it — a clean tree and
-`HEAD == origin/main` are required, notes are drafted in a gitignored `.release/`,
-and the annotated tag is created last). Until it lands here, a release is: bump the
-`project()` line, build and verify the packages, publish them, then tag.
+`tools/release.sh` is the whole process, in this order:
+
+```bash
+tools/release.sh status                          # declared version, newest tag, what is unreleased
+tools/release.sh prepare --set X.Y.Z --apply     # writes the version to CMakeLists.txt
+tools/release.sh notes                           # drafts .release/notes-vX.Y.Z.md (gitignored)
+tools/release.sh packages                        # builds AND consumes both layouts here, then stages them
+tools/release.sh publish --yes                   # tag and create the GitHub release
+```
+
+`publish` refuses to run while the notes' compatibility table still says TODO, unless the
+tree is clean, `main` is the branch, HEAD equals `origin/main`, and the tag does not already
+exist. `packages` runs `scripts/package.sh` first and prints the arm64 half to run on the Pi,
+because nothing on this machine can build it.
+
+The order is deliberate and matches the fleet rule: **build and verify every artifact,
+publish to the pool, confirm the pool serves the version, and only then tag.** A tag that
+exists while an architecture cannot install the version is a claim the packages do not
+support.
 
 Publishing into the pool (`pehkonen.dev`) is done by `pkg-repo/publish-apt.sh` and
-`pkg-repo/publish-rpm.sh` on the host that holds the signing key. The fleet rule is
-that a release is only announced once every architecture carries the version — amd64
-and arm64 build natively on the machines that hold them, and armhf is built with the
-armv6 baseline in a Raspbian chroot, because Debian's own armhf baseline is armv7 and
-would not run on the armv6 print server.
+`pkg-repo/publish-rpm.sh` on the host that holds the signing key. Both accept a whole set in
+one pass (`add FILE [FILE ...]`) so the pool never serves a partially updated set. amd64 and
+arm64 build natively on the machines that hold them; armhf is built with the armv6 baseline
+in a Raspbian chroot, because Debian's own armhf baseline is armv7 and would not run on the
+armv6 print server.
 
-## Known issues in the CLI's own help text
+## CLI help-text defects (fixed in 3.2.0)
 
-Two defects were found while writing `jsom(1)`, and the man page documents the real
-behaviour rather than the help text's claim:
+Three defects were found while writing `jsom(1)`, and the man page documented the real
+behaviour until the CLI could be fixed:
 
-- `jsom pointer --help` advertises `--max-depth`, `--include-values` and `--format`,
-  but `pointer` rejects every `--` argument after a subcommand
-  (`Unknown option: --format=json`, exit 1). The flags are stale.
-- `jsom format --help` prints `--inline-arrays` default 10 and `--max-width` default
-  120 (the struct defaults), while `jsom format` actually starts from the *pretty*
-  preset: inline arrays 8, max width 100
-  (`PRETTY_INLINE_ARRAY_SIZE` / `PRETTY_MAX_LINE_WIDTH` in
-  `include/jsom/constants.hpp`).
+- `jsom pointer --help` advertised `--max-depth`, `--include-values` and `--format`, but
+  `pointer` rejects every `--` argument after a subcommand
+  (`Unknown option: --format=json`, exit 1). The flags were stale, left over from the
+  removed path cache; **3.2.0 removes them from the help.**
+- `jsom format --help` printed `--inline-arrays` default 10 and `--max-width` default 120
+  (the bare struct defaults), while `jsom format` starts from the *pretty* preset: inline
+  arrays 8, max width 100. **3.2.0 prints what the command uses**, from the same constants
+  the preset uses, so the two cannot drift again.
+- `echo '{"a":1}' | jsom pointer get /a` failed with `Error: Cannot open file: /a`: the
+  pointer operand was taken for a filename, so the stdin form `jsom(1)` documents did not
+  work for pointer reads (nor for `pointer list`). **3.2.0 reads standard input when no
+  file is given**, and `tools/cli_smoke.sh` covers file, stdin and the RFC 6901 escapes.
