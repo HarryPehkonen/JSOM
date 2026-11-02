@@ -82,6 +82,31 @@ expect_path_absent() { # expect_path_absent <label> <path list> <exact path>
     if grep -qxF -- "$3" <<<"$2"; then bad "$1 ($3 must not be there)"; else note "ok: $1"; fi
 }
 
+# A dependency computed from the build machine's installed state is not a property of
+# the package. dpkg-shlibdeps reads the shlibs of the libjsom3 INSTALLED on the build
+# machine unless the build tree supplies its own entry (cmake/CPack.cmake writes one),
+# and CPack APPENDS its output to the explicit CPACK_DEBIAN_CLI_PACKAGE_DEPENDS. The
+# published jsom_3.2.0-1_amd64.deb carries both
+#   libjsom3 (>= 3.2.0-1), ..., libjsom3 (= 3.1.2-2), ...
+# and apt obeys the exact one, so the release cannot be installed at all:
+#   jsom : Depends: libjsom3 (= 3.1.2-2) but 3.2.0-1 is to be installed
+# The "the CLI package version equals CMakeLists.txt" check below verifies the package's
+# OWN version and never looked at its dependency, which is the hole. This checks the
+# dependency, from the BUILT package: it must name the version being built, and the
+# libjsom3 installed here (if different) must not appear.
+check_cli_runtime_depends() { # check_cli_runtime_depends <deb> <package-version>
+    local deb="$1" pv="$2" depends installed
+    [ -f "$deb" ] || { bad "deb: $deb was not produced, so its runtime dependency could not be checked"; return; }
+    depends=$(dpkg-deb -f "$deb" Depends)
+    expect_in "deb: the CLI package's runtime dependency names the version being built" "$depends" "libjsom3 (= $pv)"
+    installed=$(dpkg-query -W -f='${Version}' libjsom3 2>/dev/null || true)
+    if [ -n "$installed" ] && [ "$installed" != "$pv" ]; then
+        expect_not_in "deb: the runtime dependency does not pin the libjsom3 installed on this machine ($installed)" "$depends" "libjsom3 (= $installed)"
+    else
+        note "deb: no different libjsom3 is installed here, so the build-machine-leak assertion has nothing to look for"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # which layouts, and the tools they need
 # ---------------------------------------------------------------------------
@@ -466,6 +491,9 @@ if [ "$WANT_DEB" = 1 ]; then
         expect_in "deb: the CLI package Depends on libjsom3" "$cli_control" "libjsom3"
         expect_in "deb: the CLI package is in section utils" "$cli_control" "Section: utils"
         expect_in "deb: the CLI package version equals CMakeLists.txt" "$cli_control" "Version: $PV"
+        # The line above checks the CLI's OWN version; this checks the version it
+        # requires of the runtime package, which is what 3.2.0-1 got wrong.
+        check_cli_runtime_depends "$DEB_CLI" "$PV"
 
         # control and the soname declaration
         rt_control=$(dpkg-deb -I "$DEB_RT")

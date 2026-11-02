@@ -89,8 +89,15 @@ this repository supersedes — and rpm's own comparison ranks that release *abov
 
 so a package numbered `1` would never have been offered as an upgrade to a machine that
 already had one, and republishing `3.1.2-1.fc44` was not an option: a pool entry must never
-change under its own name-version-release. **A new upstream version starts over at 1** —
-3.2.0 ships as `3.2.0-1` in every form.
+change under its own name-version-release. **A new upstream version starts over at 1.**
+
+For 3.2.0 the release reads `2`, which is the counter's other job. `3.2.0-1` was published and
+then superseded: its CLI package pinned the runtime library to the version installed on the
+build machine (`libjsom3 (= 3.1.2-2)`), so apt refused the upgrade on every Debian machine.
+A packaging-only fix of a version already in the pool is exactly what this counter is for, and
+a pool entry must never change under its own name-version-release, so the corrected packages
+are `3.2.0-2` in every form. The mechanism, the artifact, and the check that now guards it are
+recorded in the release notes for v3.2.0 and in the comments in `cmake/CPack.cmake`.
 
 ## Verification
 
@@ -112,7 +119,11 @@ It builds the packages, then checks them the way a user would experience them:
   against the *extracted packages*, with `CMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF`;
 - the same consumer is built through `pkg-config` and run;
 - the shipped man pages render and name the right things;
-- the packaged version equals the version in `CMakeLists.txt`.
+- the packaged version equals the version in `CMakeLists.txt`;
+- the CLI package's dependency on the runtime names **the version being built**, and does
+  not name the `libjsom3` installed on the machine doing the building. This is the check
+  that a released 3.2.0-1 slipped past: it had the right package version and the wrong
+  dependency, and nothing here looked at the dependency.
 
 **The consumption checks are hermetic, and that needs `bubblewrap`.**
 `CMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF` covers configuration only. A machine that already has

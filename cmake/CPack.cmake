@@ -36,7 +36,14 @@
 #   rpm --eval '%{lua: print(rpm.vercmp("3.1.2-1.fc44","3.1.2-1"))}'   ->  1
 # so a package numbered "1" would never have been offered as an upgrade to a machine that
 # already had one. Republishing 1.fc44 was not an option, so the first reachable revision was 2.
-set(JSOM_PACKAGE_RELEASE 1)
+#
+# Why 3.2.0 also ships as -2: the pool already serves 3.2.0-1, and its CLI package pinned
+# libjsom3 to the version INSTALLED ON THE BUILD MACHINE rather than the version being built,
+# so apt could not install it anywhere (measured below, at the shlibs entry). The correction is
+# a packaging-only fix of a version already published, which is what this counter is for, and a
+# pool entry must never change under its own name-version-release, so 3.2.0-2, not a
+# republished 3.2.0-1.
+set(JSOM_PACKAGE_RELEASE 2)
 set(JSOM_PACKAGE_VERSION "${PROJECT_VERSION}-${JSOM_PACKAGE_RELEASE}")
 
 # This tree builds STATIC libraries by default (BUILD_SHARED_LIBS unset), which is
@@ -112,11 +119,40 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)   # Depends: from dpkg-shlibdeps, not by 
 # on the runtime package stays explicit below, because a build-tree path is not a
 # package name.
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
+
+# The private directory above tells dpkg-shlibdeps WHERE to find libjsom.so.3; it does
+# not tell it WHAT to say about the library. For a library that is not yet in a package
+# database, dpkg-shlibdeps reads a shlibs file from the build tree of the package the
+# library was found in (man dpkg-shlibdeps, "Shlibs files": the shlibs file in that
+# build tree takes precedence over shlibs files from other binary packages). With none
+# there it falls through to the libjsom3 INSTALLED on the build machine and reads THAT
+# package's shlibs, so the dependency carries the installed version instead of the
+# version being built. Measured on the published 3.2.0-1:
+#   $ dpkg-deb -f jsom_3.2.0-1_amd64.deb Depends
+#   libjsom3 (>= 3.2.0-1), ..., libjsom3 (= 3.1.2-2), libstdc++6 (>= 13.1)
+# and apt on every Debian machine then refuses the release:
+#   jsom : Depends: libjsom3 (= 3.1.2-2) but 3.2.0-1 is to be installed
+# because the shlibdeps-generated exact entry wins over CPack's floor. The build
+# machine's installed state must not reach the artifact, so write the entry for the
+# version this tree builds into the directory CPack hands dpkg-shlibdeps with -l; our
+# own soname is then answered from here and the installed package is never consulted.
+# Format: <library> <soname> <dependency>, the same shape as the generated control
+# shlibs below (libjsom 3 ...). "=" is right for the CLI: it and the runtime are
+# released together from this tree, so the pair must travel as a pair.
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/DEBIAN")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/DEBIAN/shlibs"
+    "libjsom 3 libjsom3 (= ${JSOM_PACKAGE_VERSION})\n")
+
 # Generating a shlibs control file in the library package is what lets the soname
 # declare libjsom3 as its provider, so a later external package in this pool can
 # depend on JSOM the ordinary way instead of by hand.
 set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS ON)
-set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS_POLICY "=")
+# ">=", not the "=" that CPack defaults to. The file generated here is read by OTHER
+# packages in the pool, and a library must offer a floor rather than an exact pin: with
+# "=" every future package built against libjsom would inherit a dependency on this one
+# release. The exact pin belongs to the CLI's own dependency, written as the local
+# shlibs entry above.
+set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS_POLICY ">=")
 set(CPACK_DEBIAN_CLI_PACKAGE_NAME "jsom")
 set(CPACK_DEBIAN_CLI_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_CLI_PACKAGE_DEPENDS "libjsom3 (>= ${JSOM_PACKAGE_VERSION})")
