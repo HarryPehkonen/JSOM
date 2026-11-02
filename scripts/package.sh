@@ -138,7 +138,11 @@ note "host triplet $TRIPLET, deb arch $DEBARCH, rpm arch $RPMARCH"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/jsom-package-XXXXXX")
 PKGS="$WORK/pkgs"
 mkdir -p "$PKGS"
+# The bwrap mount points live under $HOME (they must pre-exist and be writable
+# by this user); the mirror trees live under WORK and go with it.
+MASK_REAL_ROOT="$HOME/.cache/jsom-mask-real"
 cleanup() {
+    rm -rf "$MASK_REAL_ROOT"
     if [ "$FAILURES" -eq 0 ]; then
         rm -rf "$WORK"
     else
@@ -146,6 +150,89 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# isolating the consumers from a system-installed JSOM
+# ---------------------------------------------------------------------------
+# Both build machines carry JSOM installed system-wide from the package pool
+# (jsom, libjsom3, libjsom-dev at 3.1.2-2), so /usr/lib/<triplet>/libjsom.so,
+# libjsom.so.3 and libjsom.so.3.1.2 are all on disk. That made this script
+# blind, in both directions. When the sabotage at the end deletes the SONAME
+# link from the extracted copy, the dynamic loader quietly falls back to the
+# system libjsom.so.3 (same SONAME, ABI compatible) and the consumer runs
+# anyway, and the linker falls back to the system libjsom.so for -ljsom so the
+# sabotaged link still succeeds — a gate that cannot see the deletion is not a
+# gate. The positive checks leak the same way: they can pass on the strength of
+# the installed copy rather than the packages under test, which proves nothing
+# about the packages.
+#
+# bwrap hides every libjsom* entry in the system lib directories from the child
+# process, so the loader and the linker see a genuine DELETION. It refuses to
+# mount over a symlink destination and cannot create a mount point at /, so the
+# real lib directory is also bound onto a pre-existing, user-writable path under
+# $HOME and each mirror entry is a symlink pointing there. Masking only the
+# versioned file instead of removing the entry does not work: an empty file
+# makes GNU ld treat it as an empty linker script and the link succeeds
+# silently, and a garbage file makes ld fail for the wrong reason ("file format
+# not recognized"). Only removing the entry fails the way a package with a
+# missing file does.
+MASK_ACTIVE=0
+MASK_ARGS=()
+
+# The lib directories to mask: the standard paths, skipping any that is a
+# symlink (bwrap refuses those) or holds no libjsom* file. This picks up a stray
+# /usr/local/lib install as well as the packaged one.
+mask_dirs() {
+    local d
+    for d in "/usr/lib/$TRIPLET" /usr/lib64 /lib64 /usr/local/lib /usr/local/lib64; do
+        [ -d "$d" ] || continue
+        [ -L "$d" ] && continue
+        ls "$d"/libjsom* >/dev/null 2>&1 && printf '%s\n' "$d"
+    done
+}
+
+# Build the mask once: a mirror of each system lib directory with every
+# libjsom* entry left out, and the real directory bound onto its mount point.
+setup_mask() {
+    local d slug real mirror f b dirs
+    dirs=$(mask_dirs)
+    if [ -z "$dirs" ]; then
+        note "no system JSOM on the default lib paths: the consumers are already isolated from any installed copy"
+        return
+    fi
+    if ! have bwrap; then
+        echo "FAIL: JSOM is installed system-wide ($(tr '\n' ' ' <<<"$dirs")) but bubblewrap is missing: install bubblewrap, or run this on a machine with no JSOM installed — the packaging proof cannot be made without isolating the system copy" >&2
+        exit 1
+    fi
+    MASK_ACTIVE=1
+    MASK_ARGS=(--dev-bind / /)
+    for d in $dirs; do
+        slug=$(printf '%s' "${d#/}" | tr '/' '_')
+        real="$MASK_REAL_ROOT/$slug"
+        mirror="$WORK/mask/$slug"
+        mkdir -p "$real" "$mirror"
+        for f in "$d"/*; do
+            [ -e "$f" ] || continue
+            b=${f##*/}
+            case "$b" in libjsom*) continue ;; esac
+            ln -sfn "$real/$b" "$mirror/$b"
+        done
+        MASK_ARGS+=(--ro-bind "$d" "$real" --ro-bind "$mirror" "$d")
+    done
+    note "system JSOM hidden from the consumers with bwrap: $(tr '\n' ' ' <<<"$dirs")"
+}
+
+# Run a command with the system JSOM masked. Used for every step that the
+# loader or the linker could otherwise satisfy from an installed copy: the
+# consumer runs, the pkg-config link checks (positive and sabotaged) and the
+# packaged CLI runs.
+masked_run() {
+    if [ "$MASK_ACTIVE" = 1 ]; then
+        bwrap "${MASK_ARGS[@]}" -- "$@"
+    else
+        "$@"
+    fi
+}
 
 deb_paths() { dpkg-deb -c "$1" 2>/dev/null | awk '{print $6}'; }
 
@@ -278,7 +365,7 @@ consume_root() { # consume_root <root> <libdir> <label> <tag> [extra cmake args.
         return
     fi
     local out rc
-    out=$(LD_LIBRARY_PATH="$root/usr/$libdir" "$build/app" 2>&1); rc=$?
+    out=$(masked_run env LD_LIBRARY_PATH="$root/usr/$libdir" "$build/app" 2>&1); rc=$?
     if [ "$rc" -ne 0 ]; then
         bad "$label: the find_package consumer built but did not RUN: $out"; return
     fi
@@ -300,13 +387,13 @@ check_pkgconfig() { # check_pkgconfig <root> <libdir> <label> <tag>
     expect_in "$label: jsom.pc carries the library directory" "$flags" "-L$root/usr/$libdir"
     expect_in "$label: jsom.pc names -ljsom" "$flags" "-ljsom"
     expect_in "$label: jsom.pc version" "$(PKG_CONFIG_PATH="$pc" pkg-config --modversion jsom)" "$VERSION"
-    if ! $CXX -std=c++17 "$WORK/consumer/main.cpp" $flags -o "$WORK/pc-consumer-$tag" > "$WORK/pc-$tag.log" 2>&1; then
+    if ! masked_run $CXX -std=c++17 "$WORK/consumer/main.cpp" $flags -o "$WORK/pc-consumer-$tag" > "$WORK/pc-$tag.log" 2>&1; then
         tail -n 15 "$WORK/pc-$tag.log" >&2
         bad "$label: a pkg-config driven compile failed with: $flags"
         return
     fi
     local out rc
-    out=$(LD_LIBRARY_PATH="$root/usr/$libdir" "$WORK/pc-consumer-$tag" 2>&1); rc=$?
+    out=$(masked_run env LD_LIBRARY_PATH="$root/usr/$libdir" "$WORK/pc-consumer-$tag" 2>&1); rc=$?
     if [ "$rc" -ne 0 ]; then
         bad "$label: the pkg-config built consumer did not RUN: $out"
     elif [ "$out" = "Alice $VERSION" ]; then
@@ -328,6 +415,7 @@ else
 fi
 
 write_consumer
+setup_mask
 
 # ---------------------------------------------------------------------------
 # Debian layout
@@ -414,13 +502,13 @@ if [ "$WANT_DEB" = 1 ]; then
         check_pkgconfig "$root" "$L" "deb" deb
 
         echo "== deb: the packaged CLI runs and navigates"
-        cli_ver=$(LD_LIBRARY_PATH="$root/usr/$L" "$root/usr/bin/jsom" version 2>&1)
+        cli_ver=$(masked_run env LD_LIBRARY_PATH="$root/usr/$L" "$root/usr/bin/jsom" version 2>&1)
         expect_in "deb: jsom version prints the library version" "$cli_ver" "$VERSION"
         # The CLI reads a named file, or stdin when none is given; a file is the
         # form that always resolves, so the gate uses it rather than depending on
         # the argument handling of a stdin run.
         printf '{"users":[{"name":"Alice","age":30}]}' > "$WORK/pointer.json"
-        cli_out=$(LD_LIBRARY_PATH="$root/usr/$L" "$root/usr/bin/jsom" pointer get "/users/0/name" "$WORK/pointer.json" 2>&1)
+        cli_out=$(masked_run env LD_LIBRARY_PATH="$root/usr/$L" "$root/usr/bin/jsom" pointer get "/users/0/name" "$WORK/pointer.json" 2>&1)
         expect_in "deb: the packaged CLI reads a value through a JSON Pointer" "$cli_out" "Alice"
     fi
 fi
@@ -551,7 +639,7 @@ if [ "${JSOM_PACKAGE_SKIP_SABOTAGE:-0}" != 1 ] && [ "$WANT_DEB" = 1 ] && [ -f "$
             -DJSOM_LINK_TARGET="$sab_link" \
             > "$SAB/rt-consumer.log" 2>&1 \
        && cmake --build "$SAB/rt-consumer" >> "$SAB/rt-consumer.log" 2>&1; then
-        out=$(LD_LIBRARY_PATH="$sab_root/usr/$L" "$SAB/rt-consumer/app" 2>&1); rc=$?
+        out=$(masked_run env LD_LIBRARY_PATH="$sab_root/usr/$L" "$SAB/rt-consumer/app" 2>&1); rc=$?
         if [ "$rc" -ne 0 ] && grep -qF "libjsom.so.$SOVERSION" <<<"$out"; then
             note "sabotage (i): the consumer dies at startup exactly as the split exists to prevent — $(head -1 <<<"$out")"
         else
@@ -576,7 +664,7 @@ if [ "${JSOM_PACKAGE_SKIP_SABOTAGE:-0}" != 1 ] && [ "$WANT_DEB" = 1 ] && [ -f "$
     dpkg-deb -x "$DEB_RT" "$sab_root"; dpkg-deb -x "$sab_dev" "$sab_root"
     sab_flags=$(PKG_CONFIG_PATH="$sab_root/usr/$L/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$sab_root" \
                 PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 pkg-config --cflags --libs jsom)
-    if $CXX -std=c++17 "$WORK/consumer/main.cpp" $sab_flags -o "$SAB/sab-consumer" > "$SAB/dev-link.log" 2>&1; then
+    if masked_run $CXX -std=c++17 "$WORK/consumer/main.cpp" $sab_flags -o "$SAB/sab-consumer" > "$SAB/dev-link.log" 2>&1; then
         bad "sabotage (ii): the pkg-config consumer still linked with no libjsom.so — the link check is blind"
     elif grep -qF "cannot find -ljsom" "$SAB/dev-link.log"; then
         note "sabotage (ii): with libjsom.so removed, the pkg-config link fails — the linker cannot resolve -ljsom"

@@ -102,18 +102,30 @@ scripts/package.sh deb          # one layout
 It builds the packages, then checks them the way a user would experience them:
 
 - the three packages exist with the expected names for the layout;
-- the runtime package contains `libjsom.so.3` and `libjsom.so.3.1.2` and *not* the
+- the runtime package contains `libjsom.so.3` and `libjsom.so.<version>` and *not* the
   bare `libjsom.so`, while the development package contains the bare symlink,
   the headers, the four CMake config files, the pkg-config file and `jsom(3)`;
 - every path the installed CMake configs resolve to exists inside the extracted
   development package;
 - a real consumer — `find_package(JSOM CONFIG REQUIRED)`, link `JSOM::jsom`, parse a
   document and read it through a JSON Pointer — is configured, built and **run**
-  against the *extracted packages*, with `CMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF` so a
-  system copy cannot satisfy the test;
+  against the *extracted packages*, with `CMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF`;
 - the same consumer is built through `pkg-config` and run;
 - the shipped man pages render and name the right things;
 - the packaged version equals the version in `CMakeLists.txt`.
+
+**The consumption checks are hermetic, and that needs `bubblewrap`.**
+`CMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF` covers configuration only. A machine that already has
+JSOM installed also carries `/usr/lib/<triplet>/libjsom.so{,.3}` from the pool, and the
+dynamic loader and the linker each fall back to it. Measured: once JSOM was installed
+fleet-wide, both sabotage checks went blind — a consumer whose runtime package deliberately
+lacks its SONAME link still ran (`Alice 3.2.0`, exit 0), and `-ljsom` still linked — one day
+after the same checks passed on the same script, because JSOM was not installed on those
+machines yet. The script now hides every `libjsom*` entry in the system library directories
+from the child processes inside a `bwrap` namespace, so a deletion is a deletion and the
+proof no longer depends on what the build machine happens to have installed. If `bubblewrap`
+is missing while a system JSOM is present, the script fails loudly rather than reporting a
+proof it could not make.
 
 ## Releasing
 
