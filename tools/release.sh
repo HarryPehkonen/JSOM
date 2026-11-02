@@ -211,7 +211,18 @@ cmd_packages() {
     info "building and consuming both layouts on this machine (this is the deb + rpm half)…"
     ./scripts/package.sh || die "scripts/package.sh failed: fix it before publishing anything"
     local out="$STAGING/${PROJECT,,}-$v"
-    rm -rf "$out"; mkdir -p "$out"
+    # The staging directory is NOT recreated here. It is the one place every architecture's
+    # artifacts are collected, and it is filled from more than one machine (arm64 arrives off
+    # the Pi), so wiping it would quietly reduce the release to whatever this box built. That
+    # is not a hypothetical: an `rm -rf` here deleted three freshly built arm64 debs, and the
+    # apt pool went out with amd64 only — a partial publish that the batch mode exists to make
+    # impossible. Existing files are other architectures' work until proven otherwise.
+    mkdir -p "$out"
+    local already; already=$(ls -1 "$out" 2>/dev/null | wc -l)
+    if [ "$already" -gt 0 ]; then
+        info "$out already holds $already artifact(s) from another machine — keeping them:"
+        ls -1 "$out" | sed 's/^/      /'
+    fi
     local deb_dir="build-package-deb" rpm_dir="build-package-rpm"
     # scripts/package.sh deliberately leaves no artifacts (it keeps scratch only on failure),
     # so build the publishable set explicitly into known directories.
