@@ -1,0 +1,11 @@
+prefix=@JSOM_PC_PREFIX@
+exec_prefix=${prefix}
+libdir=@JSOM_PC_LIBDIR@
+includedir=@JSOM_PC_INCLUDEDIR@
+
+Name: jsom
+Description: @JSOM_PC_DESCRIPTION@
+URL: https://github.com/HarryPehkonen/JSOM
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -ljsom
+Cflags: -I${includedir}@JSOM_PC_CFLAGS@

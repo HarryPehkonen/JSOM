@@ -1,5 +1,16 @@
 @PACKAGE_INIT@
 
+# JSOM ships one library target, exported as JSOM::jsom. The package has no
+# dependencies of its own: the public headers are self-contained and the library
+# has no external link-time requirements (Google Benchmark and nlohmann/json are
+# used by JSOM's own benchmarks and tests only, never by the installed library).
+#
+# The consumer compiles with C++17 — the headers require it — so the target
+# carries that requirement as an INTERFACE compile feature.
+
 include("${CMAKE_CURRENT_LIST_DIR}/JSOMTargets.cmake")
+
+set(JSOM_PACKAGE_VERSION "@PROJECT_VERSION@")
+set(JSOM_LIBRARIES JSOM::jsom)
 
 check_required_components(JSOM)

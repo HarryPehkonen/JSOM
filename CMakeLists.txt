@@ -72,12 +72,30 @@ endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Development flags for good diagnostics
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
-    # Release flags for performance testing
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
+    # Release flags. PORTABLE BY DEFAULT. This used to read
+    # "-O3 -DNDEBUG -march=native", which enables whatever instruction set the
+    # BUILDING host happens to have. JSOM is published as packages that run on other
+    # machines, so that made every published binary a SIGILL waiting for a different
+    # CPU, and it made two builds of the same source incomparable — the benchmark and
+    # fuzz evidence in OPTIMIZATIONS.md is only reproducible with fixed flags.
+    # JSOM_NATIVE_TUNING restores the tuning half for local speed work:
+    # -mtune=native changes scheduling but never enables an instruction the target
+    # CPU may lack, so a build stays distributable. Re-measure anything recorded in
+    # OPTIMIZATIONS.md before trusting an old number after this change.
+    option(JSOM_NATIVE_TUNING "Tune Release builds for this machine (-mtune=native)" OFF)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    if(JSOM_NATIVE_TUNING)
+        string(APPEND CMAKE_CXX_FLAGS_RELEASE " -mtune=native")
+    endif()
 endif()
 
 # FetchContent for dependencies
 include(FetchContent)
+
+# GNUInstallDirs gives the canonical install directories (and the multiarch lib
+# directory on Debian) so the installed CMake configs can describe the same layout
+# the packages actually install. Needed before the target's INSTALL_INTERFACE below.
+include(GNUInstallDirs)
 
 # ================================
 # JSOM Library Target
@@ -91,12 +109,40 @@ add_library(jsom_lib
 target_include_directories(jsom_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${JSOM_GENERATED_INCLUDE_DIR}>
+    # Required for install(EXPORT): without an INSTALL_INTERFACE the exported
+    # JSOMTargets.cmake would carry build-tree paths that do not exist on a
+    # consumer's machine.
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_compile_features(jsom_lib PRIVATE cxx_std_17)
+# PUBLIC, not PRIVATE: the public headers require C++17, so a consumer that does not
+# ask for it itself must inherit the requirement from the link line.
+target_compile_features(jsom_lib PUBLIC cxx_std_17)
 
 # Add modern C++ compile flags for the library
 target_compile_options(jsom_lib INTERFACE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
+)
+
+# The installed library is libjsom.so.3 / libjsom.a — "jsom", not the internal
+# target name "jsom_lib" (which leaked into the hand-built packages as
+# libjsom_lib.a and made pkg-config consumers link -ljsom_lib).
+#
+# VERSION/SOVERSION give a shared build a real SONAME. Without them a shared build
+# produces an unversioned libjsom.so, which no distribution package can name
+# correctly (Debian policy: the package carries the soname's major — libjsom3) and
+# no soname-based dependency can track. Both values come from the same single
+# source as everything else: the project() line above.
+set_target_properties(jsom_lib PROPERTIES
+    OUTPUT_NAME jsom
+    # EXPORT_NAME is what makes the installed package export JSOM::jsom. The
+    # ALIAS below is build-tree only — install(EXPORT ... NAMESPACE JSOM::)
+    # publishes the TARGET name, so without this the package exported
+    # JSOM::jsom_lib and a consumer following the documented
+    # target_link_libraries(app PRIVATE JSOM::jsom) failed at configure with
+    # 'Target "app" links to JSOM::jsom but the target was not found.'
+    EXPORT_NAME jsom
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
 # Namespaced alias for modern CMake usage
@@ -621,58 +667,127 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     target_compile_options(jsom_tests PRIVATE -Wno-maybe-uninitialized)
 endif()
 
-# Install target for CLI
+# Install rules for the CLI, the library, the headers, the CMake package, the
+# pkg-config file and the man pages.
+#
+# Three components, one per package (see cmake/CPack.cmake):
+#   cli      the jsom(1) binary and its man page
+#   runtime  the shared library with its soname link
+#   dev      headers, the generated version.hpp, CMake package config,
+#            pkg-config file, the linker symlink and the jsom(3) man page
+#
+# The runtime/dev split is the one that matters. NAMELINK_COMPONENT puts
+# libjsom.so.3 — the soname link every dynamically linked consumer needs at
+# startup — in the RUNTIME package and the bare libjsom.so symlink in dev. A
+# hand-built package that shipped only the versioned file made every consumer die
+# with "libjsom.so.3: cannot open shared object file" while the package itself
+# looked complete; scripts/package.sh consumes the built packages to prove the
+# split holds.
 if(JSOM_INSTALL)
-    install(TARGETS jsom
-        RUNTIME DESTINATION bin
-    )
-endif()
+    include(CMakePackageConfigHelpers)
 
-# ---- Library install/export (canonical CMake package) --------------------
-# jsom_lib + headers install as a CMake package (JSOM::jsom alias), so external
-# consumers can find_package(JSOM) and link without embedding the repo. The CLI
-# install above is unchanged. Binary gets a soname from PROJECT_VERSION.
-set_target_properties(jsom_lib PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
-    EXPORT_NAME jsom
-)
-install(TARGETS jsom_lib
-    EXPORT JSOMTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-install(DIRECTORY include/jsom/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
-    FILES_MATCHING PATTERN "*.hpp"
-)
-# The generated version header is not in the source tree; install it explicitly.
-install(FILES ${JSOM_GENERATED_INCLUDE_DIR}/jsom/version.hpp
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
-)
-install(EXPORT JSOMTargets
-    FILE JSOMTargets.cmake
-    NAMESPACE JSOM::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
-)
-include(CMakePackageConfigHelpers)
-include(GNUInstallDirs)
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
-configure_package_config_file(
-    cmake/JSOMConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
-)
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM
-)
+    set(JSOM_COMPONENT_CLI cli)
+    set(JSOM_COMPONENT_RUNTIME runtime)
+    set(JSOM_COMPONENT_DEV dev)
+
+    install(TARGETS jsom
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                COMPONENT ${JSOM_COMPONENT_CLI}
+    )
+
+    install(TARGETS jsom_lib
+        EXPORT JSOMTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                COMPONENT ${JSOM_COMPONENT_RUNTIME}
+                NAMELINK_COMPONENT ${JSOM_COMPONENT_DEV}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                COMPONENT ${JSOM_COMPONENT_DEV}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                COMPONENT ${JSOM_COMPONENT_RUNTIME}
+    )
+
+    # The public headers, and the version header CMake generates from project().
+    # COMPONENT precedes FILES_MATCHING PATTERN deliberately: the other order is
+    # accepted by CMake and then silently drops the component assignment.
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/jsom
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        COMPONENT ${JSOM_COMPONENT_DEV}
+        FILES_MATCHING PATTERN "*.hpp"
+    )
+    install(FILES ${JSOM_GENERATED_INCLUDE_DIR}/jsom/version.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/jsom
+        COMPONENT ${JSOM_COMPONENT_DEV}
+    )
+
+    # CMake package: find_package(JSOM CONFIG REQUIRED) -> JSOM::jsom
+    set(JSOM_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/JSOM)
+    install(EXPORT JSOMTargets
+        FILE JSOMTargets.cmake
+        NAMESPACE JSOM::
+        DESTINATION ${JSOM_INSTALL_CMAKEDIR}
+        COMPONENT ${JSOM_COMPONENT_DEV}
+    )
+    configure_package_config_file(
+        cmake/JSOMConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
+        INSTALL_DESTINATION ${JSOM_INSTALL_CMAKEDIR}
+    )
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/JSOMConfigVersion.cmake
+        DESTINATION ${JSOM_INSTALL_CMAKEDIR}
+        COMPONENT ${JSOM_COMPONENT_DEV}
+    )
+
+    # pkg-config, for build systems that do not use CMake.
+    set(JSOM_PC_PREFIX "${CMAKE_INSTALL_PREFIX}")
+    set(JSOM_PC_LIBDIR "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
+    set(JSOM_PC_INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+    set(JSOM_PC_DESCRIPTION
+        "JSOM — JavaScript Object Models: a C++17 JSON library with RFC 6901 JSON Pointer navigation")
+    # The public headers require C++17; a consumer building without CMake has no
+    # other place to learn that.
+    set(JSOM_PC_CFLAGS " -std=c++17")
+    configure_file(cmake/jsom.pc.in ${CMAKE_CURRENT_BINARY_DIR}/jsom.pc @ONLY)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/jsom.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+        COMPONENT ${JSOM_COMPONENT_DEV}
+    )
+
+    # Man pages are generated from man/*.scd by scdoc, so no checked-in .1/.3 can
+    # drift from its source. A development build on a machine without scdoc still
+    # works; scripts/package.sh asserts scdoc is present for a package build.
+    find_program(SCDOC_EXECUTABLE scdoc)
+    if(SCDOC_EXECUTABLE)
+        add_custom_target(jsom-manpages ALL
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/man"
+            # Two commands, no pipe: `scdoc < in | gzip > out` hides an scdoc error
+            # behind gzip's success, which is how a page that failed to compile was
+            # once shipped. Each COMMAND's exit status is checked by the build.
+            COMMAND sh -c "${SCDOC_EXECUTABLE} < '${CMAKE_CURRENT_SOURCE_DIR}/man/jsom.1.scd' > '${CMAKE_CURRENT_BINARY_DIR}/man/jsom.1'"
+            COMMAND gzip -9nf "${CMAKE_CURRENT_BINARY_DIR}/man/jsom.1"
+            COMMAND sh -c "${SCDOC_EXECUTABLE} < '${CMAKE_CURRENT_SOURCE_DIR}/man/jsom.3.scd' > '${CMAKE_CURRENT_BINARY_DIR}/man/jsom.3'"
+            COMMAND gzip -9nf "${CMAKE_CURRENT_BINARY_DIR}/man/jsom.3"
+            COMMENT "Building jsom.1.gz and jsom.3.gz from man/*.scd"
+            VERBATIM
+        )
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/man/jsom.1.gz"
+            DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+            COMPONENT ${JSOM_COMPONENT_CLI}
+        )
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/man/jsom.3.gz"
+            DESTINATION ${CMAKE_INSTALL_MANDIR}/man3
+            COMPONENT ${JSOM_COMPONENT_DEV}
+        )
+    else()
+        message(STATUS "scdoc not found: jsom.1 and jsom.3 will not be built or installed")
+    endif()
+endif()
 
 # ================================
 # Development Convenience Targets
@@ -733,3 +848,23 @@ if(JSOM_BUILD_TESTS AND JSOM_BUILD_BENCHMARKS)
     message(STATUS "  make validation            - Final acceptance testing")
 endif()
 message(STATUS "")
+
+# ================================
+# Packaging (opt-in)
+# ================================
+# OFF for ordinary builds, so nothing about the dev, test or fuzz configurations
+# changes. A package build is:
+#
+#   cmake -S . -B build-pkg -DJSOM_ENABLE_PACKAGING=ON -DBUILD_SHARED_LIBS=ON \
+#         -DJSOM_BUILD_TESTS=OFF -DJSOM_BUILD_BENCHMARKS=OFF
+#   cmake --build build-pkg
+#   (cd build-pkg && cpack -G DEB)        # or -G RPM
+#
+# BUILD_SHARED_LIBS=ON is not optional: cmake/CPack.cmake refuses a static
+# packaging build by design, because an empty runtime package is worse than a
+# failed build. scripts/package.sh runs this whole sequence and then consumes the
+# packages it produced, which is what proves the component split.
+option(JSOM_ENABLE_PACKAGING "Generate distribution packages (cpack)" OFF)
+if(JSOM_ENABLE_PACKAGING)
+    include(cmake/CPack.cmake)
+endif()
