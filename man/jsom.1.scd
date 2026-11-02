@@ -152,10 +152,9 @@ Every command accepts *--help*, which prints the command's own help and exits.
 	With *format*, print the resolved settings for the selected preset and
 	exit without reading a document.
 
-The *pointer* subcommands take no options. The text printed by _pointer --help_
-still names *--max-depth*, *--include-values* and *--format*, but this release
-rejects any argument beginning with -- after a subcommand, with exit status 1;
-the only trailing argument a pointer subcommand accepts is the file name.
+The *pointer* subcommands take no options: any argument beginning with -- after a
+subcommand is rejected, with exit status 1. A pointer subcommand reads a named
+file, or standard input when no file is given.
 
 Options are applied left to right, so when two set the same field the later one
 wins.

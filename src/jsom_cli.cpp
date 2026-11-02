@@ -161,12 +161,12 @@ void show_pointer_usage() {
     std::cout << R"(JSON Pointer operations (RFC 6901)
 
 USAGE:
-    jsom pointer <SUBCOMMAND> [OPTIONS] [FILE]
+    jsom pointer <SUBCOMMAND> [ARGS] [FILE]
 
 SUBCOMMANDS:
     get <path>              Get value at JSON Pointer path
     exists <path>           Check if path exists
-    list [OPTIONS]          List all available paths
+    list                    List all available paths
     find <pattern>          Find paths matching pattern
     set <path> <value>      Set value at path
     remove <path>           Remove value at path
@@ -174,15 +174,13 @@ SUBCOMMANDS:
     bulk-get <paths...>     Get multiple paths efficiently
     benchmark <paths...>    Benchmark path access performance
 
-OPTIONS:
-    --max-depth=<n>         Maximum depth for path enumeration
-    --include-values        Include values in path listings
-    --format=<fmt>          Output format (json|text|compact)
+A pointer subcommand takes no options. It reads a named file, or standard input
+when no file is given.
 
 EXAMPLES:
     jsom pointer get "/users/0/name" data.json
     jsom pointer exists "/config/database/host" config.json
-    jsom pointer list --max-depth=3 --include-values data.json
+    jsom pointer list data.json
     jsom pointer find "/users/*/email" data.json
     jsom pointer bulk-get "/users/0/name,/users/0/age" data.json
 )";
@@ -226,10 +224,14 @@ PRESET OPTIONS:
 
 CUSTOM OPTIONS:
     --compact           Same as --preset=compact
-    --indent=<n>        Set indentation size (default: 2)
-    --inline-arrays=<n> Max array size for inlining (default: 10)
-    --inline-objects=<n> Max object size for inlining (default: 3)
-    --max-width=<n>     Maximum line width (default: 120, 0 = no limit)
+    --indent=<n>        Set indentation size (default: )"
+                      << format_defaults::DEFAULT_INDENT_SIZE
+                      << ")\n    --inline-arrays=<n> Max array size for inlining (default: "
+                      << format_defaults::PRETTY_INLINE_ARRAY_SIZE
+                      << ")\n    --inline-objects=<n> Max object size for inlining (default: "
+                      << format_defaults::DEFAULT_MAX_INLINE_OBJECT_SIZE
+                      << ")\n    --max-width=<n>     Maximum line width (default: "
+                      << format_defaults::PRETTY_MAX_LINE_WIDTH << R"(, 0 = no limit)
     --align-values      Align object values at same column
     --colon-spacing=<n> Spaces around colons: 0, 1, or 2 (default: 1)
     --bracket-spacing   Add spacing inside brackets/braces
@@ -687,8 +689,12 @@ auto pointer_command(const std::vector<std::string>& args) -> int {
         }
     }
 
-    // The file is the last argument if it's beyond the expected arguments and not an option
-    if (args.size() > expected_args && args.back()[0] != '-') {
+    // The file is a trailing operand BEYOND the subcommand's own arguments. The old test
+    // was one short, so a pointer read with no file argument mistook its PATH for the file:
+    // `jsom pointer get /users/0/name` (stdin form, as man/jsom.1.scd documents) tried to
+    // open "/users/0/name". Only an argument past the operands is the file; otherwise read
+    // standard input.
+    if (args.size() > expected_args + 1 && args.back()[0] != '-') {
         input_file = args.back();
     }
 
