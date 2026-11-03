@@ -470,7 +470,7 @@ if(JSOM_BUILD_FUZZING)
     FetchContent_Declare(
         jsonfuzz
         GIT_REPOSITORY https://github.com/HarryPehkonen/JSONFuzz.git
-        GIT_TAG        v0.1.0  # pin: the release the JSOM adapter targets
+        GIT_TAG        v0.2.0  # pin: the release that carries the seven oracle laws
     )
     FetchContent_MakeAvailable(jsonfuzz)
     message(STATUS "JSONFuzz: JSONFuzz::core from ${jsonfuzz_SOURCE_DIR}")
